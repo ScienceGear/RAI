@@ -1,7 +1,7 @@
 import React, { useState, useRef } from "react";
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView,
-  Animated, KeyboardAvoidingView, Platform, Image, Alert,
+  Animated, KeyboardAvoidingView, Platform, Image, Alert, ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
@@ -14,6 +14,7 @@ import { useApp } from "@/contexts/AppContext";
 import { useColors } from "@/hooks/useColors";
 import { getDefaultEnergyProfile } from "@/lib/scheduler";
 import { generateOnboardingSummary } from "@/lib/ai";
+import { uploadProfilePhoto } from "@/lib/firebase";
 import { PrimaryFocus, Chronotype } from "@/types";
 
 type Step = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
@@ -54,13 +55,14 @@ const AVATAR_COLORS = [
 export default function Onboarding() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { updateProfile } = useApp();
+  const { updateProfile, firebaseUser } = useApp();
 
   const [step, setStep] = useState<Step>(0);
   const [name, setName] = useState("");
   // step 1 — profile picture
   const [pfpUri, setPfpUri] = useState<string | undefined>();
   const [avatarColor, setAvatarColor] = useState("#6366F1");
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
 
   const [focus, setFocus] = useState<PrimaryFocus>("mixed");
   const [goalType, setGoalType] = useState("");
@@ -129,11 +131,24 @@ export default function Onboarding() {
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 0.7,
+      quality: 0.8,
     });
     if (!result.canceled && result.assets[0]) {
-      setPfpUri(result.assets[0].uri);
+      const localUri = result.assets[0].uri;
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (firebaseUser?.uid) {
+        setIsUploadingPhoto(true);
+        try {
+          const downloadUrl = await uploadProfilePhoto(firebaseUser.uid, localUri);
+          setPfpUri(downloadUrl);
+        } catch {
+          setPfpUri(localUri);
+        } finally {
+          setIsUploadingPhoto(false);
+        }
+      } else {
+        setPfpUri(localUri);
+      }
     }
   };
 
@@ -178,7 +193,7 @@ export default function Onboarding() {
             </Text>
 
             <View style={styles.pfpCenter}>
-              <TouchableOpacity onPress={pickPhoto} style={styles.pfpWrapper} activeOpacity={0.8}>
+              <TouchableOpacity onPress={isUploadingPhoto ? undefined : pickPhoto} style={styles.pfpWrapper} activeOpacity={0.8} disabled={isUploadingPhoto}>
                 {pfpUri ? (
                   <Image source={{ uri: pfpUri }} style={styles.pfpImage} />
                 ) : (
@@ -186,17 +201,24 @@ export default function Onboarding() {
                     <Text style={styles.pfpInitials}>{initials}</Text>
                   </View>
                 )}
-                <View style={styles.pfpCameraBadge}>
-                  <Ionicons name="camera" size={18} color="#FFF" />
-                </View>
+                {isUploadingPhoto ? (
+                  <View style={styles.pfpUploadOverlay}>
+                    <ActivityIndicator color="#FFF" size="large" />
+                  </View>
+                ) : (
+                  <View style={styles.pfpCameraBadge}>
+                    <Ionicons name="camera" size={18} color="#FFF" />
+                  </View>
+                )}
               </TouchableOpacity>
 
               <TouchableOpacity
                 onPress={pickPhoto}
-                style={[styles.photoBtn, { backgroundColor: "#6366F1" }]}
+                disabled={isUploadingPhoto}
+                style={[styles.photoBtn, { backgroundColor: "#6366F1", opacity: isUploadingPhoto ? 0.6 : 1 }]}
               >
-                <Ionicons name="image" size={16} color="#FFF" />
-                <Text style={styles.photoBtnText}>{pfpUri ? "Change Photo" : "Choose from Gallery"}</Text>
+                {isUploadingPhoto ? <ActivityIndicator color="#FFF" size="small" /> : <Ionicons name="image" size={16} color="#FFF" />}
+                <Text style={styles.photoBtnText}>{isUploadingPhoto ? "Uploading…" : pfpUri ? "Change Photo" : "Choose from Gallery"}</Text>
               </TouchableOpacity>
 
               {pfpUri && (
@@ -481,6 +503,7 @@ const styles = StyleSheet.create({
   pfpCenter: { alignItems: "center", gap: 16 },
   pfpWrapper: { position: "relative" },
   pfpImage: { width: 110, height: 110, borderRadius: 55 },
+  pfpUploadOverlay: { position: "absolute", top: 0, left: 0, width: 110, height: 110, borderRadius: 55, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center" },
   pfpPlaceholder: { width: 110, height: 110, borderRadius: 55, alignItems: "center", justifyContent: "center" },
   pfpInitials: { fontSize: 40, fontFamily: "Inter_700Bold", color: "#FFF" },
   pfpCameraBadge: { position: "absolute", bottom: 4, right: 4, width: 30, height: 30, borderRadius: 15, backgroundColor: "#6366F1", alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "#0A0A0F" },

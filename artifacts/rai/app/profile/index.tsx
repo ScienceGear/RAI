@@ -1,7 +1,7 @@
 import React, { useState, useRef } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Platform, TextInput, Alert, Image,
+  Platform, TextInput, Alert, Image, ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -14,6 +14,7 @@ import { useApp } from "@/contexts/AppContext";
 import { ProgressRing } from "@/components/ProgressRing";
 import { xpToNextLevel, getLevelTitle } from "@/lib/xp";
 import { getRaiScoreTier, getCategoryColor } from "@/constants/categories";
+import { uploadProfilePhoto } from "@/lib/firebase";
 
 const AVATAR_COLORS = [
   "#6366F1", "#8B5CF6", "#EC4899", "#EF4444",
@@ -23,7 +24,7 @@ const AVATAR_COLORS = [
 export default function ProfileScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { profile, updateProfile, tasks, focusSessions, achievements } = useApp();
+  const { profile, updateProfile, tasks, focusSessions, achievements, firebaseUser } = useApp();
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
 
   const [editing, setEditing] = useState(false);
@@ -31,6 +32,7 @@ export default function ProfileScreen() {
   const [editAge, setEditAge] = useState(String(profile.age ?? ""));
   const [editColor, setEditColor] = useState(profile.avatarColor ?? "#6366F1");
   const [editPhotoUri, setEditPhotoUri] = useState<string | undefined>(profile.avatarUrl);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
 
   const saveDebounce = useRef<ReturnType<typeof setTimeout>>();
 
@@ -70,11 +72,25 @@ export default function ProfileScreen() {
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 0.7,
+      quality: 0.8,
     });
     if (!result.canceled && result.assets[0]) {
-      setEditPhotoUri(result.assets[0].uri);
+      const localUri = result.assets[0].uri;
       Haptics.selectionAsync();
+      if (firebaseUser?.uid) {
+        setIsUploadingPhoto(true);
+        try {
+          const downloadUrl = await uploadProfilePhoto(firebaseUser.uid, localUri);
+          setEditPhotoUri(downloadUrl);
+        } catch {
+          Alert.alert("Upload failed", "Couldn't save your photo. Please try again.");
+          setEditPhotoUri(localUri);
+        } finally {
+          setIsUploadingPhoto(false);
+        }
+      } else {
+        setEditPhotoUri(localUri);
+      }
     }
   };
 
@@ -135,7 +151,7 @@ export default function ProfileScreen() {
 
         {/* ── Hero / Avatar ── */}
         <View style={[styles.heroSection, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
-          <TouchableOpacity onPress={editing ? pickPhoto : undefined} activeOpacity={editing ? 0.7 : 1}>
+          <TouchableOpacity onPress={editing && !isUploadingPhoto ? pickPhoto : undefined} activeOpacity={editing ? 0.7 : 1} disabled={isUploadingPhoto}>
             {displayPhotoUri ? (
               <Image source={{ uri: displayPhotoUri }} style={styles.avatarLarge} />
             ) : (
@@ -143,18 +159,22 @@ export default function ProfileScreen() {
                 <Text style={styles.avatarLargeText}>{initials}</Text>
               </View>
             )}
-            {editing && (
+            {isUploadingPhoto ? (
+              <View style={styles.avatarUploadOverlay}>
+                <ActivityIndicator color="#FFF" size="small" />
+              </View>
+            ) : editing ? (
               <View style={styles.avatarEditBadge}>
                 <Ionicons name="camera" size={14} color="#FFF" />
               </View>
-            )}
+            ) : null}
           </TouchableOpacity>
 
           {editing ? (
             <View style={styles.editAvatarActions}>
-              <TouchableOpacity onPress={pickPhoto} style={[styles.avatarActionBtn, { backgroundColor: colors.primary }]}>
-                <Ionicons name="image" size={14} color="#FFF" />
-                <Text style={styles.avatarActionText}>Choose Photo</Text>
+              <TouchableOpacity onPress={pickPhoto} disabled={isUploadingPhoto} style={[styles.avatarActionBtn, { backgroundColor: isUploadingPhoto ? colors.secondary : colors.primary, opacity: isUploadingPhoto ? 0.6 : 1 }]}>
+                {isUploadingPhoto ? <ActivityIndicator color="#FFF" size="small" /> : <Ionicons name="image" size={14} color="#FFF" />}
+                <Text style={styles.avatarActionText}>{isUploadingPhoto ? "Uploading…" : "Choose Photo"}</Text>
               </TouchableOpacity>
               {editPhotoUri && (
                 <TouchableOpacity onPress={removePhoto} style={[styles.avatarActionBtn, { backgroundColor: colors.secondary, borderWidth: 1, borderColor: colors.border }]}>
@@ -325,6 +345,7 @@ const styles = StyleSheet.create({
   avatarLarge: { width: 88, height: 88, borderRadius: 44, alignItems: "center", justifyContent: "center" },
   avatarLargeText: { fontSize: 36, fontFamily: "Inter_700Bold", color: "#FFF" },
   avatarEditBadge: { position: "absolute", bottom: 2, right: 2, width: 26, height: 26, borderRadius: 13, backgroundColor: "#6366F1", alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "#0A0A0F" },
+  avatarUploadOverlay: { position: "absolute", top: 0, left: 0, width: 88, height: 88, borderRadius: 44, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center" },
   editAvatarActions: { flexDirection: "row", gap: 10, marginTop: 4 },
   avatarActionBtn: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 },
   avatarActionText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: "#FFF" },
