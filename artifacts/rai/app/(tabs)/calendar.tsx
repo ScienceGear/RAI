@@ -26,7 +26,7 @@ interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   text: string;
-  action?: SchedulerAction;
+  actions?: SchedulerAction[];
   applied?: boolean;
 }
 
@@ -872,7 +872,7 @@ export default function CalendarScreen() {
         profile: { firstName: profile.firstName, chronotype: profile.chronotype, sleepStart: profile.sleepStart, sleepEnd: profile.sleepEnd, preferredWorkHours: profile.preferredWorkHours, primaryFocus: profile.primaryFocus, motivation: profile.motivation, mainStruggle: profile.mainStruggle, dailyCapacityMinutes: profile.dailyCapacityMinutes },
         tasks: tasks.map((t) => ({ id: t.id, title: t.title, scheduledDate: t.scheduledDate, scheduledTime: t.scheduledTime, deadline: t.deadline, priority: t.priority, categoryPrimary: t.categoryPrimary, completed: t.completed })),
       });
-      setChatMessages((prev) => [...prev, { id: (Date.now() + 1).toString(), role: "assistant", text: result.text, action: result.action }]);
+      setChatMessages((prev) => [...prev, { id: (Date.now() + 1).toString(), role: "assistant", text: result.text, actions: result.actions }]);
     } catch {
       setChatMessages((prev) => [...prev, { id: (Date.now() + 1).toString(), role: "assistant", text: "Sorry, couldn't connect. Try again!" }]);
     } finally {
@@ -881,12 +881,14 @@ export default function CalendarScreen() {
     }
   };
 
-  const applyAction = async (msgId: string, action: SchedulerAction) => {
+  const applyActions = async (msgId: string, actions: SchedulerAction[]) => {
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    if (action.type === "create_task" && action.task) {
-      await addTask({ title: action.task.title, estimatedMinutes: action.task.estimatedMinutes ?? 30, priority: (action.task.priority ?? 2) as 1|2|3|4, difficulty: (action.task.difficulty ?? 2) as 1|2|3|4|5, categoryPrimary: action.task.categoryPrimary ?? "Personal", scheduledDate: action.task.scheduledDate, scheduledTime: action.task.scheduledTime, deadline: action.task.deadline, notes: action.task.notes, moodSensitive: false, isRecurring: false });
-    } else if (action.type === "schedule_task" && action.taskId) {
-      await updateTask(action.taskId, { scheduledDate: action.scheduledDate, scheduledTime: action.scheduledTime });
+    for (const action of actions) {
+      if (action.type === "create_task" && action.task) {
+        await addTask({ title: action.task.title, estimatedMinutes: action.task.estimatedMinutes ?? 30, priority: (action.task.priority ?? 2) as 1|2|3|4, difficulty: (action.task.difficulty ?? 2) as 1|2|3|4|5, categoryPrimary: action.task.categoryPrimary ?? "Personal", scheduledDate: action.task.scheduledDate, scheduledTime: action.task.scheduledTime, deadline: action.task.deadline, notes: action.task.notes, moodSensitive: false, isRecurring: false });
+      } else if (action.type === "schedule_task" && action.taskId) {
+        await updateTask(action.taskId, { scheduledDate: action.scheduledDate, scheduledTime: action.scheduledTime });
+      }
     }
     setChatMessages((prev) => prev.map((m) => m.id === msgId ? { ...m, applied: true } : m));
   };
@@ -987,11 +989,21 @@ export default function CalendarScreen() {
                     <View style={[styles.msgBubble, msg.role === "user" ? [styles.msgBubbleUser, { backgroundColor: colors.primary }] : [styles.msgBubbleAI, { backgroundColor: colors.card, borderColor: colors.border }]]}>
                       <Text style={[styles.msgText, { color: msg.role === "user" ? "#FFF" : colors.foreground }]}>{msg.text}</Text>
                     </View>
-                    {msg.action && msg.role === "assistant" && (
-                      <TouchableOpacity onPress={() => !msg.applied && applyAction(msg.id, msg.action!)} style={[styles.applyBtn, { backgroundColor: msg.applied ? "#22C55E22" : colors.primary, borderColor: msg.applied ? "#22C55E44" : colors.primary }]} disabled={msg.applied}>
+                    {msg.actions && msg.actions.length > 0 && msg.role === "assistant" && (
+                      <TouchableOpacity
+                        onPress={() => !msg.applied && applyActions(msg.id, msg.actions!)}
+                        style={[styles.applyBtn, { backgroundColor: msg.applied ? "#22C55E22" : colors.primary, borderColor: msg.applied ? "#22C55E44" : colors.primary }]}
+                        disabled={msg.applied}
+                      >
                         <Ionicons name={msg.applied ? "checkmark-circle" : "flash"} size={14} color={msg.applied ? "#22C55E" : "#FFF"} />
                         <Text style={[styles.applyBtnText, { color: msg.applied ? "#22C55E" : "#FFF" }]}>
-                          {msg.applied ? "Applied!" : msg.action.type === "create_task" ? `Add "${msg.action.task?.title ?? "task"}"` : "Apply change"}
+                          {msg.applied
+                            ? `Applied ${msg.actions.length > 1 ? `${msg.actions.length} tasks` : ""}!`
+                            : msg.actions.length > 1
+                            ? `Add ${msg.actions.length} tasks to schedule`
+                            : msg.actions[0].type === "create_task"
+                            ? `Add "${msg.actions[0].task?.title ?? "task"}"`
+                            : "Apply change"}
                         </Text>
                       </TouchableOpacity>
                     )}

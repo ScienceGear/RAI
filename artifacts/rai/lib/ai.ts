@@ -187,56 +187,73 @@ export async function chatWithScheduler(
       completed: boolean;
     }>;
   }
-): Promise<{ text: string; action?: SchedulerAction }> {
+): Promise<{ text: string; actions?: SchedulerAction[] }> {
   const today = new Date().toISOString().split("T")[0];
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().split("T")[0];
   const todayTasks = context.tasks.filter((t) => t.scheduledDate === today && !t.completed);
   const upcomingTasks = context.tasks
     .filter((t) => !t.completed && t.scheduledDate && t.scheduledDate >= today)
-    .slice(0, 10)
-    .map((t) => `- "${t.title}" on ${t.scheduledDate} at ${t.scheduledTime ?? "TBD"} (priority ${t.priority}, cat: ${t.categoryPrimary})`)
+    .slice(0, 12)
+    .map((t) => `  [${t.id.slice(0, 8)}] "${t.title}" — ${t.scheduledDate} ${t.scheduledTime ?? "no time"} (p${t.priority}, ${t.categoryPrimary})`)
     .join("\n");
 
-  const system = `You are RAI, an elite AI productivity coach and schedule planner with full access to ${context.profile.firstName}'s data.
+  const system = `You are RAI, an elite AI productivity coach with FULL real-time access to ${context.profile.firstName}'s tasks and calendar.
 
 USER PROFILE:
-- Name: ${context.profile.firstName}
-- Chronotype: ${context.profile.chronotype} (prefers: ${context.profile.preferredWorkHours.join(", ")})
-- Sleep: ${context.profile.sleepEnd} wake up, ${context.profile.sleepStart} bedtime
-- Primary focus: ${context.profile.primaryFocus}
-- Motivation: ${context.profile.motivation}
-- Main struggles: ${context.profile.mainStruggle.join(", ")}
-- Daily capacity: ${context.profile.dailyCapacityMinutes} minutes
+• Name: ${context.profile.firstName}
+• Chronotype: ${context.profile.chronotype} | Best hours: ${context.profile.preferredWorkHours.join(", ")}
+• Wake: ${context.profile.sleepEnd} | Bedtime: ${context.profile.sleepStart}
+• Focus: ${context.profile.primaryFocus} | Motivation: ${context.profile.motivation}
+• Struggles: ${context.profile.mainStruggle.join(", ")}
+• Daily capacity: ${Math.round(context.profile.dailyCapacityMinutes / 60)}h
 
-TODAY'S SCHEDULE (${today}):
-${todayTasks.length > 0 ? todayTasks.map((t) => `- "${t.title}" at ${t.scheduledTime ?? "TBD"}`).join("\n") : "Nothing scheduled yet"}
+TODAY (${today}):
+${todayTasks.length > 0 ? todayTasks.map((t) => `  "${t.title}" at ${t.scheduledTime ?? "TBD"}`).join("\n") : "  Nothing scheduled yet"}
 
-UPCOMING TASKS:
-${upcomingTasks || "No upcoming tasks"}
+UPCOMING TASKS (with IDs):
+${upcomingTasks || "  None"}
 
-INSTRUCTIONS:
-- Be concise, warm, and specific. Max 3 sentences of response text.
-- If the user wants to CREATE a task, schedule something, or plan their day, respond with text AND an ACTION block.
-- For ACTION, use this exact format on its own line at the end: ACTION:{"type":"create_task","task":{"title":"...","estimatedMinutes":30,"priority":2,"difficulty":2,"scheduledDate":"${today}","scheduledTime":"09:00","categoryPrimary":"Work"}}
-- Use today's date ${today} as reference. Tomorrow = ${new Date(Date.now() + 86400000).toISOString().split("T")[0]}.
-- Respect the user's chronotype and preferred work hours when suggesting times.
-- If no scheduling action needed, just respond with helpful text.`;
+DATE REFERENCE: today=${today}, tomorrow=${tomorrow}
 
-  const response = await callAI(messages, system, 400);
+RESPONSE RULES:
+1. Reply in 1-3 warm, specific sentences.
+2. When creating or scheduling tasks, append EXACTLY this on its own final line — no extra text after it:
+   ACTIONS:[{"type":"create_task","task":{"title":"...","estimatedMinutes":30,"priority":2,"difficulty":2,"scheduledDate":"${today}","scheduledTime":"09:00","categoryPrimary":"Work"}}]
+3. For MULTIPLE tasks (e.g. "plan my full day"), put all objects in ONE array:
+   ACTIONS:[{...task1...},{...task2...},{...task3...}]
+4. To reschedule an existing task: {"type":"schedule_task","taskId":"<8-char id>","scheduledDate":"${today}","scheduledTime":"15:00"}
+5. Valid categoryPrimary values: Work, Learning, Health, Creative, Personal, Finance, Social, Side Project
+6. Priority 1=low, 2=normal, 3=high, 4=urgent. Difficulty 1-5.
+7. Respect the user's chronotype — don't schedule deep work during their low-energy hours.
+8. If no scheduling is needed, OMIT the ACTIONS line entirely.`;
 
-  const actionMatch = response.match(/ACTION:(\{[\s\S]*\})/);
-  let action: SchedulerAction | undefined;
+  const response = await callAI(messages, system, 600);
+
+  let actions: SchedulerAction[] | undefined;
   let text = response;
 
-  if (actionMatch) {
+  // Parse ACTIONS:[...] array format
+  const arrMatch = response.match(/ACTIONS:(\[[\s\S]*?\])\s*$/m);
+  if (arrMatch) {
     try {
-      action = JSON.parse(actionMatch[1]) as SchedulerAction;
-      text = response.replace(/ACTION:\{[\s\S]*\}/, "").trim();
-    } catch {
-      action = undefined;
+      actions = JSON.parse(arrMatch[1]) as SchedulerAction[];
+      text = response.slice(0, response.lastIndexOf("ACTIONS:")).trim();
+    } catch {}
+  }
+
+  // Fallback: legacy single ACTION:{...} format
+  if (!actions) {
+    const objMatch = response.match(/ACTION:(\{[\s\S]*?\})\s*$/m);
+    if (objMatch) {
+      try {
+        const single = JSON.parse(objMatch[1]) as SchedulerAction;
+        actions = [single];
+        text = response.slice(0, response.lastIndexOf("ACTION:")).trim();
+      } catch {}
     }
   }
 
-  return { text: text || "I'm here to help schedule your day!", action };
+  return { text: text || "I'm here to help — tell me what to schedule!", actions };
 }
 
 export async function generateOnboardingSummary(answers: Record<string, unknown>): Promise<string> {

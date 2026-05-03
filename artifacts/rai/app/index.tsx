@@ -1,39 +1,46 @@
 import { useEffect } from "react";
-import { StyleSheet, Text, Image } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
+import Animated, {
+  useSharedValue, useAnimatedStyle, withTiming, withDelay, Easing,
+} from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
-import Animated, { useSharedValue, useAnimatedStyle, withSpring, withRepeat, withTiming, Easing } from "react-native-reanimated";
 
 import { useApp } from "@/contexts/AppContext";
+
+const ease = Easing.out(Easing.cubic);
 
 export default function SplashScreen() {
   const { profile, isLoaded, isAuthReady, firebaseUser } = useApp();
 
-  const scale = useSharedValue(0.8);
-  const opacity = useSharedValue(0);
-  const glow = useSharedValue(0);
+  const contentOpacity = useSharedValue(0);
+  const contentY = useSharedValue(14);
+  const taglineOpacity = useSharedValue(0);
+  const barFill = useSharedValue(0);
 
-  const animStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-    opacity: opacity.value,
+  const contentStyle = useAnimatedStyle(() => ({
+    opacity: contentOpacity.value,
+    transform: [{ translateY: contentY.value }],
   }));
 
-  const glowStyle = useAnimatedStyle(() => ({
-    opacity: 0.35 + glow.value * 0.35,
+  const taglineStyle = useAnimatedStyle(() => ({
+    opacity: taglineOpacity.value,
+  }));
+
+  const barStyle = useAnimatedStyle(() => ({
+    width: `${barFill.value}%` as any,
   }));
 
   useEffect(() => {
-    scale.value = withSpring(1, { damping: 12 });
-    opacity.value = withTiming(1, { duration: 700 });
-    glow.value = withRepeat(
-      withTiming(1, { duration: 1800, easing: Easing.inOut(Easing.ease) }),
-      -1,
-      true
-    );
+    contentOpacity.value = withTiming(1, { duration: 550, easing: ease });
+    contentY.value = withTiming(0, { duration: 550, easing: ease });
+    taglineOpacity.value = withDelay(280, withTiming(1, { duration: 500, easing: ease }));
+    barFill.value = withDelay(150, withTiming(45, { duration: 700, easing: ease }));
   }, []);
 
   useEffect(() => {
     if (!isAuthReady) return;
+    barFill.value = withTiming(100, { duration: 350, easing: ease });
     const timer = setTimeout(() => {
       if (!firebaseUser) {
         router.replace("/auth");
@@ -42,28 +49,26 @@ export default function SplashScreen() {
       } else {
         router.replace("/(tabs)/home");
       }
-    }, 2400);
+    }, 1600);
     return () => clearTimeout(timer);
   }, [isAuthReady, isLoaded, firebaseUser, profile.onboardingComplete]);
 
   return (
-    <LinearGradient colors={["#0A0A0F", "#0D0B1A", "#130A28"]} style={styles.container}>
-      <Animated.View style={[styles.logoWrap, animStyle]}>
-        <Animated.View style={[styles.glow, glowStyle]} />
-        <Image
-          source={require("@/assets/images/icon.png")}
-          style={styles.logo}
-          resizeMode="contain"
-        />
-        <Text style={styles.logoText}>RAI</Text>
-        <Text style={styles.tagline}>Your AI coach that never lets you quit.</Text>
+    <LinearGradient colors={["#0A0A0F", "#0D0B1A"]} style={styles.container}>
+      <Animated.View style={[styles.centerBlock, contentStyle]}>
+        <View style={styles.badge}>
+          <View style={styles.badgeDot} />
+          <Text style={styles.badgeText}>AI PRODUCTIVITY COACH</Text>
+        </View>
+        <Text style={styles.wordmark}>RAI</Text>
+        <Animated.Text style={[styles.tagline, taglineStyle]}>
+          Your AI coach that never lets you quit.
+        </Animated.Text>
       </Animated.View>
 
-      <Animated.View
-        style={[styles.loadingBar, { position: "absolute", bottom: 80 }]}
-      >
-        <Animated.View style={[styles.loadingFill, { width: isAuthReady ? "100%" : "55%" }]} />
-      </Animated.View>
+      <View style={styles.barTrack}>
+        <Animated.View style={[styles.barFill, barStyle]} />
+      </View>
     </LinearGradient>
   );
 }
@@ -74,45 +79,56 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  logoWrap: {
+  centerBlock: {
     alignItems: "center",
-    gap: 18,
+    gap: 16,
   },
-  glow: {
-    position: "absolute",
-    width: 220,
-    height: 220,
-    borderRadius: 110,
+  badge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 100,
+    backgroundColor: "#6366F118",
+    borderWidth: 1,
+    borderColor: "#6366F130",
+  },
+  badgeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
     backgroundColor: "#6366F1",
-    top: -35,
-    zIndex: -1,
   },
-  logo: {
-    width: 160,
-    height: 160,
-    borderRadius: 80,
+  badgeText: {
+    fontSize: 10,
+    fontFamily: "Inter_600SemiBold",
+    color: "#818CF8",
+    letterSpacing: 1.5,
   },
-  logoText: {
-    fontSize: 48,
+  wordmark: {
+    fontSize: 72,
     fontFamily: "Inter_700Bold",
     color: "#FFFFFF",
-    letterSpacing: 8,
+    letterSpacing: 18,
+    marginLeft: 18,
   },
   tagline: {
     fontSize: 14,
     fontFamily: "Inter_400Regular",
-    color: "#6B7280",
-    textAlign: "center",
-    paddingHorizontal: 40,
+    color: "#4B5563",
+    letterSpacing: 0.2,
   },
-  loadingBar: {
-    width: 120,
-    height: 3,
+  barTrack: {
+    position: "absolute",
+    bottom: 64,
+    width: 140,
+    height: 2,
     backgroundColor: "#1E1E2E",
     borderRadius: 2,
     overflow: "hidden",
   },
-  loadingFill: {
+  barFill: {
     height: "100%",
     backgroundColor: "#6366F1",
     borderRadius: 2,
