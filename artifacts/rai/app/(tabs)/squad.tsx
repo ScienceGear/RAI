@@ -1,5 +1,8 @@
 import React, { useState } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Platform } from "react-native";
+import {
+  View, Text, StyleSheet, ScrollView, TouchableOpacity,
+  TextInput, Platform, Alert, ActivityIndicator, Share,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -7,95 +10,100 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/contexts/AppContext";
 import { ProgressRing } from "@/components/ProgressRing";
+import { uidToColor } from "@/lib/firebase";
 
 type Tab = "leaderboard" | "activity" | "squad";
 
-const DEMO_MEMBERS = [
-  { id: "1", name: "Arjun K.", raiScore: 847, xp: 4200, streak: 14, lastActive: "2min ago", avatarColor: "#6366F1" },
-  { id: "2", name: "Riya S.", raiScore: 732, xp: 3600, streak: 9, lastActive: "15min ago", avatarColor: "#10B981" },
-  { id: "3", name: "Vikram R.", raiScore: 698, xp: 3100, streak: 7, lastActive: "1hr ago", avatarColor: "#F97316" },
-  { id: "4", name: "Meera T.", raiScore: 545, xp: 2400, streak: 3, lastActive: "3hr ago", avatarColor: "#EC4899" },
-];
-
-const DEMO_ACTIVITY = [
-  { id: "1", user: "Riya S.", action: "completed", detail: "Morning Run", time: "2min ago", icon: "checkmark-circle", color: "#10B981" },
-  { id: "2", user: "Arjun K.", action: "hit a", detail: "14-day streak", time: "15min ago", icon: "flame", color: "#F97316" },
-  { id: "3", user: "Vikram R.", action: "finished", detail: "90-min Deep Work session", time: "1hr ago", icon: "time", color: "#6366F1" },
-  { id: "4", user: "Meera T.", action: "completed", detail: "Client Proposal", time: "3hr ago", icon: "checkmark-circle", color: "#10B981" },
-  { id: "5", user: "Arjun K.", action: "unlocked", detail: "Deep Diver achievement", time: "5hr ago", icon: "trophy", color: "#F59E0B" },
-];
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}min ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}hr ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
 
 export default function SquadScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { profile, squad, activityFeed } = useApp();
+  const { profile, squad, activityFeed, createSquad, joinSquadByCode, leaveSquad, firebaseUserId } = useApp();
+
   const [activeTab, setActiveTab] = useState<Tab>("leaderboard");
+  const [showCreate, setShowCreate] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
+  const [squadName, setSquadName] = useState("");
   const [inviteCode, setInviteCode] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
-  const weeklyTarget = 20;
-  const weeklyProgress = 14;
-  const myRank = 1;
 
-  const allMembers = [
-    { id: profile.id, name: profile.name, raiScore: profile.raiScore, xp: profile.xp, streak: profile.streak, lastActive: "Now", avatarColor: "#6366F1" },
-    ...DEMO_MEMBERS,
-  ].sort((a, b) => b.raiScore - a.raiScore);
+  // Build leaderboard from real squad members + yourself if not in squad
+  const allMembers = squad
+    ? [...squad.members].sort((a, b) => b.raiScore - a.raiScore)
+    : [{ id: profile.id, name: profile.name, raiScore: profile.raiScore, xp: profile.xp, streak: profile.streak, lastActive: new Date().toISOString() }];
 
   const rankColors = ["#F59E0B", "#9CA3AF", "#CD7C2F"];
 
+  const myActivityFeed = activityFeed.slice(0, 20);
+
+  // ─── Leaderboard ───────────────────────────────────────────────────────────
   const renderLeaderboard = () => (
     <View style={styles.tabContent}>
-      <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-        <Text style={[styles.cardTitle, { color: colors.foreground }]}>Weekly Challenge</Text>
-        <Text style={[styles.challengeDesc, { color: colors.mutedForeground }]}>
-          Complete 20 focus hours this week
-        </Text>
-        <View style={styles.progressRow}>
-          <ProgressRing size={60} strokeWidth={6} progress={weeklyProgress / weeklyTarget} color="#6366F1" trackColor={colors.border}>
-            <Text style={[styles.progressNum, { color: colors.primary }]}>{weeklyProgress}</Text>
-          </ProgressRing>
-          <View style={styles.progressInfo}>
-            <Text style={[styles.progressText, { color: colors.foreground }]}>
-              {weeklyProgress}/{weeklyTarget} hours
-            </Text>
-            <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
-              <View style={[styles.progressFill, { width: `${(weeklyProgress / weeklyTarget) * 100}%`, backgroundColor: colors.primary }]} />
+      {squad && (
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={styles.squadNameRow}>
+            <Ionicons name="people" size={18} color={colors.primary} />
+            <Text style={[styles.cardTitle, { color: colors.foreground }]}>{squad.name}</Text>
+            <View style={[styles.codeBadge, { backgroundColor: colors.primary + "22", borderColor: colors.primary + "44" }]}>
+              <Text style={[styles.codeText, { color: colors.primary }]}>{squad.inviteCode}</Text>
             </View>
           </View>
+          <Text style={[styles.memberCount, { color: colors.mutedForeground }]}>
+            {squad.members.length} member{squad.members.length !== 1 ? "s" : ""} · Tap code to copy invite link
+          </Text>
         </View>
-      </View>
+      )}
+
+      {!squad && (
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={[styles.noSquadHint, { color: colors.mutedForeground }]}>
+            Join or create a squad to compete with friends on the leaderboard.
+          </Text>
+        </View>
+      )}
 
       {allMembers.map((member, i) => {
-        const isMe = member.id === profile.id;
-        const isTop3 = i < 3;
+        const isMe = member.id === profile.id || member.id === firebaseUserId;
+        const isTop3 = i < 3 && squad;
+        const color = uidToColor(member.id);
         return (
           <View
             key={member.id}
             style={[styles.memberCard, {
-              backgroundColor: isMe ? colors.primary + "22" : colors.card,
+              backgroundColor: isMe ? colors.primary + "18" : colors.card,
               borderColor: isMe ? colors.primary : colors.border,
             }]}
           >
             <View style={styles.rankContainer}>
               {isTop3 ? (
                 <View style={[styles.crownBadge, { backgroundColor: rankColors[i] + "22" }]}>
-                  <Ionicons name="trophy" size={16} color={rankColors[i]} />
+                  <Ionicons name="trophy" size={15} color={rankColors[i]} />
                 </View>
               ) : (
                 <Text style={[styles.rankNum, { color: colors.mutedForeground }]}>{i + 1}</Text>
               )}
             </View>
-            <View style={[styles.memberAvatar, { backgroundColor: member.avatarColor }]}>
-              <Text style={styles.memberAvatarText}>{member.name[0]}</Text>
+            <View style={[styles.memberAvatar, { backgroundColor: color }]}>
+              <Text style={styles.memberAvatarText}>{member.name[0]?.toUpperCase()}</Text>
             </View>
             <View style={styles.memberInfo}>
               <Text style={[styles.memberName, { color: colors.foreground }]}>
-                {member.name} {isMe && "(You)"}
+                {member.name}{isMe ? " (You)" : ""}
               </Text>
               <Text style={[styles.memberMeta, { color: colors.mutedForeground }]}>
-                {member.streak} day streak · {member.lastActive}
+                🔥 {member.streak}d · {timeAgo(member.lastActive)}
               </Text>
             </View>
             <View style={styles.memberScore}>
@@ -110,36 +118,36 @@ export default function SquadScreen() {
     </View>
   );
 
+  // ─── Activity ──────────────────────────────────────────────────────────────
   const renderActivity = () => (
     <View style={styles.tabContent}>
-      {DEMO_ACTIVITY.map((item) => (
-        <View key={item.id} style={[styles.activityItem, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <View style={[styles.activityIcon, { backgroundColor: item.color + "22" }]}>
-            <Ionicons name={item.icon as keyof typeof Ionicons.glyphMap} size={18} color={item.color} />
-          </View>
-          <View style={styles.activityContent}>
-            <Text style={[styles.activityText, { color: colors.foreground }]}>
-              <Text style={{ fontFamily: "Inter_700Bold" }}>{item.user}</Text>
-              {" "}{item.action}{" "}
-              <Text style={{ color: colors.primary }}>"{item.detail}"</Text>
-            </Text>
-            <Text style={[styles.activityTime, { color: colors.mutedForeground }]}>{item.time}</Text>
-          </View>
+      {myActivityFeed.length === 0 && (
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border, alignItems: "center", gap: 10 }]}>
+          <Ionicons name="pulse" size={32} color={colors.mutedForeground} />
+          <Text style={[styles.noSquadHint, { color: colors.mutedForeground, textAlign: "center" }]}>
+            No activity yet. Complete tasks to see your feed here.
+          </Text>
         </View>
-      ))}
-      {activityFeed.slice(0, 5).map((item) => (
+      )}
+      {myActivityFeed.map((item) => (
         <View key={item.id} style={[styles.activityItem, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={[styles.activityIcon, { backgroundColor: colors.primary + "22" }]}>
-            <Ionicons name="checkmark-circle" size={18} color={colors.primary} />
+            <Ionicons
+              name={item.actionType === "task_complete" ? "checkmark-circle" : item.actionType === "achievement" ? "trophy" : "flash"}
+              size={18}
+              color={colors.primary}
+            />
           </View>
           <View style={styles.activityContent}>
             <Text style={[styles.activityText, { color: colors.foreground }]}>
               <Text style={{ fontFamily: "Inter_700Bold" }}>{item.userName}</Text>
-              {" completed "}
-              <Text style={{ color: colors.primary }}>"{(item.actionData as any).taskTitle}"</Text>
+              {item.actionType === "task_complete" && (
+                <> completed <Text style={{ color: colors.primary }}>"{(item.actionData as any).taskTitle}"</Text></>
+              )}
             </Text>
             <Text style={[styles.activityTime, { color: colors.mutedForeground }]}>
-              {new Date(item.createdAt).toLocaleTimeString()}
+              {timeAgo(item.createdAt)}
+              {(item.actionData as any).xpEarned ? ` · +${(item.actionData as any).xpEarned} XP` : ""}
             </Text>
           </View>
         </View>
@@ -147,25 +155,128 @@ export default function SquadScreen() {
     </View>
   );
 
-  const renderMySquad = () => (
-    <View style={styles.tabContent}>
-      {!squad ? (
+  // ─── My Squad ──────────────────────────────────────────────────────────────
+  const handleCreate = async () => {
+    if (!squadName.trim()) { setError("Enter a squad name."); return; }
+    setLoading(true); setError("");
+    try {
+      await createSquad(squadName.trim());
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setShowCreate(false); setSquadName("");
+      setActiveTab("leaderboard");
+    } catch {
+      setError("Failed to create squad. Try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleJoin = async () => {
+    if (inviteCode.trim().length !== 6) { setError("Enter a 6-character invite code."); return; }
+    setLoading(true); setError("");
+    const ok = await joinSquadByCode(inviteCode.trim());
+    setLoading(false);
+    if (ok) {
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setShowJoin(false); setInviteCode("");
+      setActiveTab("leaderboard");
+    } else {
+      setError("Invalid code. Check with your squad leader.");
+    }
+  };
+
+  const handleCopyCode = async () => {
+    if (!squad) return;
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    await Share.share({
+      message: `Join my RAI squad "${squad.name}"! Use invite code: ${squad.inviteCode}`,
+      title: "Join my RAI Squad",
+    });
+  };
+
+  const handleLeave = () => {
+    Alert.alert("Leave Squad", "Are you sure you want to leave your squad?", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Leave", style: "destructive", onPress: leaveSquad },
+    ]);
+  };
+
+  const renderMySquad = () => {
+    if (squad) {
+      return (
+        <View style={styles.tabContent}>
+          <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border, gap: 16 }]}>
+            <View style={styles.squadNameRow}>
+              <Ionicons name="people" size={20} color={colors.primary} />
+              <Text style={[styles.cardTitle, { color: colors.foreground, fontSize: 18 }]}>{squad.name}</Text>
+            </View>
+
+            <TouchableOpacity
+              onPress={handleCopyCode}
+              style={[styles.inviteRow, { backgroundColor: colors.secondary, borderColor: colors.border }]}
+            >
+              <View>
+                <Text style={[styles.inviteCode, { color: colors.primary }]}>{squad.inviteCode}</Text>
+                <Text style={[styles.inviteLabel, { color: colors.mutedForeground }]}>Tap to copy invite code</Text>
+              </View>
+              <Ionicons name="copy-outline" size={20} color={colors.mutedForeground} />
+            </TouchableOpacity>
+
+            <View style={styles.memberListHeader}>
+              <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Members ({squad.members.length})</Text>
+            </View>
+            {squad.members.map((m) => {
+              const isMe = m.id === profile.id || m.id === firebaseUserId;
+              const color = uidToColor(m.id);
+              return (
+                <View key={m.id} style={[styles.memberRow, { borderBottomColor: colors.border }]}>
+                  <View style={[styles.memberAvatar, { backgroundColor: color, width: 36, height: 36, borderRadius: 18 }]}>
+                    <Text style={[styles.memberAvatarText, { fontSize: 14 }]}>{m.name[0]?.toUpperCase()}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.memberName, { color: colors.foreground, fontSize: 14 }]}>
+                      {m.name}{isMe ? " (You)" : ""}
+                    </Text>
+                    <Text style={[styles.memberMeta, { color: colors.mutedForeground }]}>
+                      {m.raiScore} RAI · 🔥 {m.streak}d
+                    </Text>
+                  </View>
+                  <Text style={[styles.activityTime, { color: colors.mutedForeground }]}>{timeAgo(m.lastActive)}</Text>
+                </View>
+              );
+            })}
+
+            <TouchableOpacity
+              onPress={handleLeave}
+              style={[styles.leaveBtn, { borderColor: "#EF4444" + "44" }]}
+            >
+              <Ionicons name="exit-outline" size={16} color="#EF4444" />
+              <Text style={[styles.leaveBtnText]}>Leave Squad</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.tabContent}>
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border, alignItems: "center", gap: 16 }]}>
           <Ionicons name="people" size={48} color={colors.mutedForeground} />
-          <Text style={[styles.cardTitle, { color: colors.foreground }]}>No squad yet</Text>
-          <Text style={[styles.challengeDesc, { color: colors.mutedForeground, textAlign: "center" }]}>
+          <Text style={[styles.cardTitle, { color: colors.foreground, fontSize: 18 }]}>No squad yet</Text>
+          <Text style={[styles.noSquadHint, { color: colors.mutedForeground, textAlign: "center" }]}>
             Join a squad or create one to compete, share progress, and stay accountable together.
           </Text>
+
           <View style={styles.squadBtns}>
             <TouchableOpacity
-              onPress={() => setShowJoin(true)}
+              onPress={() => { setShowJoin(true); setShowCreate(false); setError(""); }}
               style={[styles.squadBtn, { backgroundColor: colors.secondary, borderColor: colors.border, borderWidth: 1 }]}
             >
               <Ionicons name="enter" size={18} color={colors.primary} />
               <Text style={[styles.squadBtnText, { color: colors.primary }]}>Join Squad</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)}
+              onPress={() => { setShowCreate(true); setShowJoin(false); setError(""); }}
               style={[styles.squadBtn, { backgroundColor: colors.primary }]}
             >
               <Ionicons name="add-circle" size={18} color="#FFF" />
@@ -173,34 +284,53 @@ export default function SquadScreen() {
             </TouchableOpacity>
           </View>
 
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+          {showCreate && (
+            <View style={styles.form}>
+              <TextInput
+                style={[styles.codeInput, { backgroundColor: colors.secondary, borderColor: colors.border, color: colors.foreground, letterSpacing: 1, textAlign: "left", fontSize: 16 }]}
+                placeholder="Squad name, e.g. 'Grind Squad'"
+                placeholderTextColor={colors.mutedForeground}
+                value={squadName}
+                onChangeText={setSquadName}
+                autoFocus
+              />
+              <TouchableOpacity
+                onPress={handleCreate}
+                disabled={loading}
+                style={[styles.joinBtn, { backgroundColor: colors.primary, opacity: loading ? 0.7 : 1 }]}
+              >
+                {loading ? <ActivityIndicator color="#FFF" /> : <Text style={styles.joinBtnText}>Create</Text>}
+              </TouchableOpacity>
+            </View>
+          )}
+
           {showJoin && (
-            <View style={styles.joinForm}>
+            <View style={styles.form}>
               <TextInput
                 style={[styles.codeInput, { backgroundColor: colors.secondary, borderColor: colors.border, color: colors.foreground }]}
-                placeholder="Enter 6-char invite code..."
+                placeholder="Enter 6-char invite code"
                 placeholderTextColor={colors.mutedForeground}
                 value={inviteCode}
                 onChangeText={setInviteCode}
                 autoCapitalize="characters"
                 maxLength={6}
+                autoFocus
               />
-              <TouchableOpacity style={[styles.joinBtn, { backgroundColor: colors.primary }]}>
-                <Text style={styles.joinBtnText}>Join</Text>
+              <TouchableOpacity
+                onPress={handleJoin}
+                disabled={loading}
+                style={[styles.joinBtn, { backgroundColor: colors.primary, opacity: loading ? 0.7 : 1 }]}
+              >
+                {loading ? <ActivityIndicator color="#FFF" /> : <Text style={styles.joinBtnText}>Join</Text>}
               </TouchableOpacity>
             </View>
           )}
         </View>
-      ) : (
-        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.cardTitle, { color: colors.foreground }]}>{squad.name}</Text>
-          <View style={[styles.inviteRow, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
-            <Text style={[styles.inviteCode, { color: colors.primary }]}>{squad.inviteCode}</Text>
-            <Text style={[styles.inviteLabel, { color: colors.mutedForeground }]}>Invite code</Text>
-          </View>
-        </View>
-      )}
-    </View>
-  );
+      </View>
+    );
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -224,7 +354,10 @@ export default function SquadScreen() {
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={{ paddingBottom: 100 + insets.bottom }} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: 100 + insets.bottom }}
+        showsVerticalScrollIndicator={false}
+      >
         {activeTab === "leaderboard" && renderLeaderboard()}
         {activeTab === "activity" && renderActivity()}
         {activeTab === "squad" && renderMySquad()}
@@ -241,15 +374,13 @@ const styles = StyleSheet.create({
   tabBtn: { flex: 1, borderRadius: 10, borderWidth: 1, paddingVertical: 8, alignItems: "center" },
   tabBtnText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
   tabContent: { padding: 16, gap: 10 },
-  card: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 12 },
-  cardTitle: { fontSize: 15, fontFamily: "Inter_700Bold" },
-  challengeDesc: { fontSize: 13, fontFamily: "Inter_400Regular" },
-  progressRow: { flexDirection: "row", alignItems: "center", gap: 14 },
-  progressNum: { fontSize: 14, fontFamily: "Inter_700Bold" },
-  progressInfo: { flex: 1, gap: 8 },
-  progressText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
-  progressBar: { height: 6, borderRadius: 3, overflow: "hidden" },
-  progressFill: { height: "100%", borderRadius: 3 },
+  card: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 10 },
+  cardTitle: { fontSize: 15, fontFamily: "Inter_700Bold", flex: 1 },
+  squadNameRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  codeBadge: { borderRadius: 8, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 3 },
+  codeText: { fontSize: 12, fontFamily: "Inter_700Bold", letterSpacing: 2 },
+  memberCount: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  noSquadHint: { fontSize: 13, fontFamily: "Inter_400Regular" },
   memberCard: { flexDirection: "row", alignItems: "center", borderRadius: 14, borderWidth: 1, padding: 12, gap: 10 },
   rankContainer: { width: 32, alignItems: "center" },
   rankNum: { fontSize: 15, fontFamily: "Inter_700Bold" },
@@ -270,11 +401,17 @@ const styles = StyleSheet.create({
   squadBtns: { flexDirection: "row", gap: 10, width: "100%" },
   squadBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 12, paddingVertical: 12 },
   squadBtnText: { fontSize: 14, fontFamily: "Inter_700Bold" },
-  joinForm: { width: "100%", gap: 10 },
+  form: { width: "100%", gap: 10 },
   codeInput: { borderRadius: 12, borderWidth: 1, padding: 14, fontSize: 18, fontFamily: "Inter_700Bold", textAlign: "center", letterSpacing: 4 },
   joinBtn: { borderRadius: 12, paddingVertical: 14, alignItems: "center" },
   joinBtnText: { fontSize: 15, fontFamily: "Inter_700Bold", color: "#FFF" },
-  inviteRow: { borderRadius: 10, borderWidth: 1, padding: 16, alignItems: "center", gap: 4 },
+  errorText: { fontSize: 13, fontFamily: "Inter_400Regular", color: "#EF4444", textAlign: "center" },
+  inviteRow: { flexDirection: "row", borderRadius: 12, borderWidth: 1, padding: 16, alignItems: "center", justifyContent: "space-between" },
   inviteCode: { fontSize: 28, fontFamily: "Inter_700Bold", letterSpacing: 6 },
-  inviteLabel: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  inviteLabel: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
+  sectionLabel: { fontSize: 12, fontFamily: "Inter_600SemiBold", textTransform: "uppercase", letterSpacing: 0.8 },
+  memberListHeader: { flexDirection: "row", alignItems: "center" },
+  memberRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, borderBottomWidth: 1 },
+  leaveBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 10, borderWidth: 1, paddingVertical: 10, marginTop: 4 },
+  leaveBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#EF4444" },
 });

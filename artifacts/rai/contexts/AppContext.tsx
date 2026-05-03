@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { User } from "firebase/auth";
 
@@ -7,7 +7,11 @@ import { getItem, setItem, KEYS } from "@/lib/storage";
 import { getDefaultEnergyProfile, autoScheduleTask } from "@/lib/scheduler";
 import { categorizeTaskLocal } from "@/lib/categorizer";
 import { calculateTaskXP, levelFromXP, calculateRaiScore, DEFAULT_ACHIEVEMENTS } from "@/lib/xp";
-import { firestoreSet, firestoreGetAll, firestoreSetAll } from "@/lib/firebase";
+import {
+  firestoreSet, firestoreGetAll, firestoreSetAll, firestoreSubscribe,
+  createSquad as fsCreateSquad, joinSquad as fsJoinSquad,
+  listenToSquad, updateSquadMember, SquadDoc, uidToColor,
+} from "@/lib/firebase";
 import { listenToAuthState, signOut as authSignOut } from "@/lib/auth";
 import { scheduleTaskReminder, sendInstantNotification } from "@/lib/notifications";
 
@@ -49,6 +53,9 @@ interface AppContextType {
   addXP: (amount: number) => Promise<void>;
   resetOnboarding: () => Promise<void>;
   signOut: () => Promise<void>;
+  createSquad: (name: string) => Promise<void>;
+  joinSquadByCode: (code: string) => Promise<boolean>;
+  leaveSquad: () => Promise<void>;
 }
 
 const defaultDangerZone: DangerZoneProfile = {
@@ -115,20 +122,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
 
-  // Listen to Firebase auth state changes
-  useEffect(() => {
-    const unsubscribe = listenToAuthState(async (user) => {
-      setFirebaseUser(user);
-      setIsAuthReady(true);
-      if (user) {
-        await loadUserData(user.uid, user.email ?? "");
-      } else {
-        // Not signed in — reset to defaults (keep local data for offline preview)
-        await loadLocalData();
-      }
-    });
-    return unsubscribe;
-  }, []);
+  // Track active Firestore subscriptions
+  const unsubsRef = useRef<(() => void)[]>([]);
+  const squadUnsubRef = useRef<(() => void) | null>(null);
+
+  function clearSubscriptions() {
+    unsubsRef.current.forEach((u) => u());
+    unsubsRef.current = [];
+    squadUnsubRef.current?.();
+    squadUnsubRef.current = null;
+  }
 
   function applyStreak(p: UserProfile): UserProfile {
     const today = todayStr();
@@ -140,14 +143,48 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return { ...p, streak: newStreak, longestStreak: Math.max(p.longestStreak ?? 0, newStreak), lastActiveDate: today };
   }
 
+  // Convert SquadDoc → Squad (app type)
+  function squadDocToSquad(doc: SquadDoc): Squad {
+    return {
+      id: doc.id,
+      name: doc.name,
+      inviteCode: doc.inviteCode,
+      createdBy: doc.createdBy,
+      members: doc.members.map((m) => ({
+        id: m.uid,
+        name: m.name,
+        raiScore: m.raiScore,
+        xp: m.xp,
+        streak: m.streak,
+        lastActive: m.lastActive,
+        avatarUrl: undefined,
+      })),
+    };
+  }
+
+  function subscribeToSquad(squadId: string) {
+    squadUnsubRef.current?.();
+    squadUnsubRef.current = listenToSquad(squadId, (doc) => {
+      setSquad(squadDocToSquad(doc));
+    });
+  }
+
   async function loadUserData(uid: string, email: string) {
     setIsLoaded(false);
-    // Load from Firestore (source of truth) with local fallback
+
+    // 1. Seed from local cache for instant UI
+    const [localP, localT, localG] = await Promise.all([
+      getItem<UserProfile>(KEYS.USER_PROFILE),
+      getItem<Task[]>(KEYS.TASKS),
+      getItem<Goal[]>(KEYS.GOALS),
+    ]);
+    if (localT) setTasks(localT);
+    if (localG) setGoals(localG);
+
+    // 2. One-time fetch for non-task data (profile, diary, etc.)
     const cloud = await firestoreGetAll(uid, FIRESTORE_KEYS);
 
-    const p = (cloud["profile"] as UserProfile | null) ?? (await getItem<UserProfile>(KEYS.USER_PROFILE));
-    const t = (cloud["tasks"] as Task[] | null) ?? (await getItem<Task[]>(KEYS.TASKS)) ?? [];
-    const g = (cloud["goals"] as Goal[] | null) ?? (await getItem<Goal[]>(KEYS.GOALS)) ?? [];
+    const p = (cloud["profile"] as UserProfile | null) ?? localP;
     const d = (cloud["diary"] as DiaryEntry[] | null) ?? (await getItem<DiaryEntry[]>(KEYS.DIARY)) ?? [];
     const m = (cloud["moodLogs"] as MoodLog[] | null) ?? (await getItem<MoodLog[]>(KEYS.MOOD_LOGS)) ?? [];
     const fs = (cloud["focusSessions"] as FocusSession[] | null) ?? (await getItem<FocusSession[]>(KEYS.FOCUS_SESSIONS)) ?? [];
@@ -159,17 +196,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const updatedProfile = applyStreak(profileWithEmail);
 
     setProfile(updatedProfile);
-    setTasks(t);
-    setGoals(g);
     setDiary(d);
     setMoodLogs(m);
     setFocusSessions(fs);
     setAchievements((ach && ach.length > 0) ? ach : DEFAULT_ACHIEVEMENTS);
     setActivityFeed(af);
 
-    // Persist streak update
     await setItem(KEYS.USER_PROFILE, updatedProfile);
     firestoreSet(uid, "profile", updatedProfile);
+
+    // 3. Subscribe to tasks + goals in real-time (cross-device sync)
+    const taskSub = firestoreSubscribe<Task[]>(uid, "tasks", (data) => {
+      setTasks(data);
+      setItem(KEYS.TASKS, data);
+    });
+    const goalSub = firestoreSubscribe<Goal[]>(uid, "goals", (data) => {
+      setGoals(data);
+      setItem(KEYS.GOALS, data);
+    });
+    const profileSub = firestoreSubscribe<UserProfile>(uid, "profile", (data) => {
+      setProfile((prev) => ({ ...prev, ...data, id: uid }));
+      setItem(KEYS.USER_PROFILE, data);
+    });
+    const activitySub = firestoreSubscribe<ActivityFeedItem[]>(uid, "activityFeed", (data) => {
+      setActivityFeed(data);
+      setItem(KEYS.ACTIVITY_FEED, data);
+    });
+
+    unsubsRef.current = [taskSub, goalSub, profileSub, activitySub];
+
+    // 4. Subscribe to squad if user has one
+    const squadRef = (cloud["squad"] as { squadId: string } | null);
+    if (squadRef?.squadId) {
+      subscribeToSquad(squadRef.squadId);
+    }
 
     setIsLoaded(true);
   }
@@ -185,6 +245,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (g) setGoals(g);
     setIsLoaded(true);
   }
+
+  useEffect(() => {
+    const unsubAuth = listenToAuthState(async (user) => {
+      clearSubscriptions();
+      setFirebaseUser(user);
+      setIsAuthReady(true);
+      if (user) {
+        await loadUserData(user.uid, user.email ?? "");
+      } else {
+        setSquad(null);
+        await loadLocalData();
+      }
+    });
+    return () => {
+      unsubAuth();
+      clearSubscriptions();
+    };
+  }, []);
 
   const uid = firebaseUser?.uid ?? null;
 
@@ -394,11 +472,67 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [uid]);
 
   const signOut = useCallback(async () => {
+    clearSubscriptions();
     await authSignOut();
     setFirebaseUser(null);
     setProfile(defaultProfile);
     setTasks([]); setGoals([]); setDiary([]);
+    setSquad(null);
   }, []);
+
+  // ─── Squad operations ───────────────────────────────────────────────────────
+
+  const createSquad = useCallback(async (name: string) => {
+    if (!uid) return;
+    const doc = await fsCreateSquad({
+      squadName: name,
+      creatorUid: uid,
+      creatorName: profile.name,
+      creatorRaiScore: profile.raiScore,
+      creatorXP: profile.xp,
+      creatorStreak: profile.streak,
+    });
+    // Save squad ref to user's Firestore data
+    await firestoreSet(uid, "squad", { squadId: doc.id });
+    subscribeToSquad(doc.id);
+  }, [uid, profile]);
+
+  const joinSquadByCode = useCallback(async (code: string): Promise<boolean> => {
+    if (!uid) return false;
+    const doc = await fsJoinSquad({
+      inviteCode: code,
+      memberUid: uid,
+      memberName: profile.name,
+      memberRaiScore: profile.raiScore,
+      memberXP: profile.xp,
+      memberStreak: profile.streak,
+    });
+    if (!doc) return false;
+    await firestoreSet(uid, "squad", { squadId: doc.id });
+    subscribeToSquad(doc.id);
+    return true;
+  }, [uid, profile]);
+
+  const leaveSquad = useCallback(async () => {
+    if (!uid) return;
+    squadUnsubRef.current?.();
+    squadUnsubRef.current = null;
+    await firestoreSet(uid, "squad", null);
+    setSquad(null);
+  }, [uid]);
+
+  // Keep squad member info fresh when profile changes
+  useEffect(() => {
+    if (!uid || !squad) return;
+    const isMember = squad.members.some((m) => m.id === uid);
+    if (!isMember) return;
+    updateSquadMember(squad.id, uid, {
+      name: profile.name,
+      raiScore: profile.raiScore,
+      xp: profile.xp,
+      streak: profile.streak,
+    });
+  }, [profile.raiScore, profile.xp, profile.streak]);
 
   const today = todayStr();
   const todayTasks = tasks.filter((t) => t.scheduledDate === today);
@@ -416,6 +550,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updateProfile, addTask, updateTask, deleteTask, completeTask, scheduleTask,
       addGoal, updateGoal, addDiaryEntry, updateDiaryEntry, logMood, addFocusSession,
       unlockAchievement, addXP, resetOnboarding, signOut,
+      createSquad, joinSquadByCode, leaveSquad,
     }}>
       {children}
     </AppContext.Provider>
