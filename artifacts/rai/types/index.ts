@@ -119,6 +119,10 @@ export interface UserProfile {
   onboardingComplete: boolean;
   theme: Theme;
   use24Hour: boolean;
+  defaultFocusDuration: number;
+  morningBriefingEnabled: boolean;
+  morningBriefingHour: number;
+  dangerZoneAlertsEnabled: boolean;
   aiMemory: AIMemoryFact[];
   notificationsGranted: boolean;
   usageStatsGranted: boolean;
