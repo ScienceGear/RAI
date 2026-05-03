@@ -8,7 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
 import * as WebBrowser from "expo-web-browser";
-import * as Google from "expo-auth-session/providers/google";
+import { useAuthRequest, makeRedirectUri } from "expo-auth-session";
 import { router } from "expo-router";
 
 import { sendMagicLink, signInWithGoogleCredential, getStoredEmail } from "@/lib/auth";
@@ -17,6 +17,12 @@ import { listenToAuthState } from "@/lib/auth";
 WebBrowser.maybeCompleteAuthSession();
 
 const GOOGLE_WEB_CLIENT_ID = "593785131539-bd2obj39lgdd92rj1p29m4f3181gsbcs.apps.googleusercontent.com";
+
+const GOOGLE_DISCOVERY = {
+  authorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth",
+  tokenEndpoint: "https://oauth2.googleapis.com/token",
+  revocationEndpoint: "https://oauth2.googleapis.com/revoke",
+};
 
 type State = "idle" | "sending" | "sent" | "googleLoading" | "error";
 
@@ -27,10 +33,18 @@ export default function AuthScreen() {
   const [errorMsg, setErrorMsg] = useState("");
   const [storedEmail, setStoredEmail] = useState<string | null>(null);
 
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    webClientId: GOOGLE_WEB_CLIENT_ID,
-    selectAccount: true,
-  });
+  const redirectUri = makeRedirectUri({ scheme: "rai", path: "google-auth" });
+  const [request, response, promptAsync] = useAuthRequest(
+    {
+      clientId: GOOGLE_WEB_CLIENT_ID,
+      redirectUri,
+      scopes: ["openid", "profile", "email"],
+      responseType: "id_token",
+      usePKCE: false,
+      extraParams: { nonce: Math.random().toString(36).substring(2) },
+    },
+    GOOGLE_DISCOVERY
+  );
 
   // If already authed, go home
   useEffect(() => {
