@@ -28,6 +28,11 @@ function getGreeting() {
   return "Good evening";
 }
 
+function to12h(hour: number): string {
+  const h = hour % 12 || 12;
+  return `${h} ${hour < 12 ? "AM" : "PM"}`;
+}
+
 function QuickChip({
   label, icon, color, onPress,
 }: {
@@ -204,7 +209,7 @@ export default function HomeScreen() {
             <View style={[styles.dangerBanner, { backgroundColor: colors.dangerZoneBackground, borderColor: colors.dangerZone + "44" }]}>
               <Ionicons name="warning" size={14} color={colors.dangerZone} />
               <Text style={[styles.dangerText, { color: colors.dangerZone }]}>
-                Danger zone · {dangerZone.dangerHours[0]}:00–{(dangerZone.dangerHours[dangerZone.dangerHours.length - 1] ?? 15) + 1}:00
+                Danger zone · {to12h(dangerZone.dangerHours[0])}–{to12h((dangerZone.dangerHours[dangerZone.dangerHours.length - 1] ?? 15) + 1)}
               </Text>
             </View>
           )}

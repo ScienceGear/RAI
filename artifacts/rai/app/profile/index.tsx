@@ -24,7 +24,7 @@ const AVATAR_COLORS = [
 export default function ProfileScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { profile, updateProfile, tasks, focusSessions, achievements } = useApp();
+  const { profile, updateProfile, tasks, focusSessions, achievements, signOut } = useApp();
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
 
   const [editing, setEditing] = useState(false);
@@ -323,6 +323,19 @@ export default function ProfileScreen() {
                   <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
                 </TouchableOpacity>
               ))}
+
+              <TouchableOpacity
+                onPress={() => {
+                  Alert.alert("Log out", "Are you sure you want to log out?", [
+                    { text: "Cancel", style: "cancel" },
+                    { text: "Log out", style: "destructive", onPress: () => signOut() },
+                  ]);
+                }}
+                style={[styles.quickLink, { backgroundColor: "#EF444412", borderColor: "#EF444430" }]}
+              >
+                <Ionicons name="log-out-outline" size={18} color="#EF4444" />
+                <Text style={[styles.quickLinkText, { color: "#EF4444" }]}>Log out</Text>
+              </TouchableOpacity>
             </View>
           </View>
         )}
