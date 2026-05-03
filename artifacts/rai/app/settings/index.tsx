@@ -1,22 +1,25 @@
-import React from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Alert, Platform } from "react-native";
+import React, { useEffect, useState } from "react";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Alert, Platform, Linking } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
+import * as Haptics from "expo-haptics";
 
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/contexts/AppContext";
 import { Theme } from "@/types";
+import { isFirebaseConfigured } from "@/lib/firebase";
+import { getNotificationPermissionStatus, requestNotificationPermission, scheduleDailyBriefing, scheduleDangerZoneAlert } from "@/lib/notifications";
 
-const THEMES: { value: Theme; label: string }[] = [
-  { value: "dark", label: "Dark" },
-  { value: "light", label: "Light" },
-  { value: "amoled", label: "AMOLED" },
-  { value: "system", label: "System" },
+const THEMES: { value: Theme; label: string; icon: string }[] = [
+  { value: "dark", label: "Dark", icon: "moon" },
+  { value: "light", label: "Light", icon: "sunny" },
+  { value: "amoled", label: "AMOLED", icon: "contrast" },
+  { value: "system", label: "System", icon: "phone-portrait" },
 ];
 
-function SettingRow({ icon, label, onPress, right, isDanger = false }: {
-  icon: string; label: string; onPress?: () => void; right?: React.ReactNode; isDanger?: boolean;
+function SettingRow({ icon, iconColor, label, onPress, right, isDanger = false, subtitle }: {
+  icon: string; iconColor?: string; label: string; onPress?: () => void; right?: React.ReactNode; isDanger?: boolean; subtitle?: string;
 }) {
   const colors = useColors();
   return (
@@ -25,10 +28,13 @@ function SettingRow({ icon, label, onPress, right, isDanger = false }: {
       style={[styles.settingRow, { borderBottomColor: colors.border }]}
       activeOpacity={onPress ? 0.6 : 1}
     >
-      <View style={[styles.settingIcon, { backgroundColor: isDanger ? "#EF444422" : colors.secondary }]}>
-        <Ionicons name={icon as keyof typeof Ionicons.glyphMap} size={18} color={isDanger ? "#EF4444" : colors.primary} />
+      <View style={[styles.settingIcon, { backgroundColor: isDanger ? "#EF444422" : (iconColor ? iconColor + "22" : colors.secondary) }]}>
+        <Ionicons name={icon as keyof typeof Ionicons.glyphMap} size={18} color={isDanger ? "#EF4444" : (iconColor ?? colors.primary)} />
       </View>
-      <Text style={[styles.settingLabel, { color: isDanger ? "#EF4444" : colors.foreground }]}>{label}</Text>
+      <View style={styles.settingLabelCol}>
+        <Text style={[styles.settingLabel, { color: isDanger ? "#EF4444" : colors.foreground }]}>{label}</Text>
+        {subtitle && <Text style={[styles.settingSubtitle, { color: colors.mutedForeground }]}>{subtitle}</Text>}
+      </View>
       <View style={styles.settingRight}>
         {right ?? (onPress && <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />)}
       </View>
@@ -41,14 +47,54 @@ function SectionHeader({ title }: { title: string }) {
   return <Text style={[styles.sectionHeader, { color: colors.mutedForeground }]}>{title}</Text>;
 }
 
+function StatusBadge({ status }: { status: "on" | "off" | "partial" }) {
+  const color = status === "on" ? "#10B981" : status === "partial" ? "#F97316" : "#6B7280";
+  const label = status === "on" ? "On" : status === "partial" ? "Partial" : "Off";
+  return (
+    <View style={[styles.statusBadge, { backgroundColor: color + "22" }]}>
+      <View style={[styles.statusDot, { backgroundColor: color }]} />
+      <Text style={[styles.statusText, { color }]}>{label}</Text>
+    </View>
+  );
+}
+
 export default function SettingsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { profile, updateProfile, resetOnboarding } = useApp();
+  const { profile, updateProfile, resetOnboarding, dangerZone, firebaseUserId } = useApp();
+  const [notifStatus, setNotifStatus] = useState<"granted" | "denied" | "undetermined">("undetermined");
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
 
+  useEffect(() => {
+    getNotificationPermissionStatus().then(setNotifStatus);
+  }, []);
+
+  const handleEnableNotifications = async () => {
+    await Haptics.selectionAsync();
+    if (notifStatus === "denied") {
+      Alert.alert(
+        "Notifications Blocked",
+        "Please go to Settings > Notifications > RAI to enable notifications.",
+        [
+          { text: "Open Settings", onPress: () => Linking.openSettings() },
+          { text: "Cancel", style: "cancel" },
+        ]
+      );
+      return;
+    }
+    const granted = await requestNotificationPermission();
+    if (granted) {
+      await updateProfile({ notificationsGranted: true });
+      await scheduleDailyBriefing(8, 0);
+      const firstDanger = dangerZone.dangerHours[0];
+      if (firstDanger && firstDanger > 0) await scheduleDangerZoneAlert(firstDanger);
+      setNotifStatus("granted");
+    }
+  };
+
   const handleReset = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     Alert.alert(
       "Reset All Data",
       "This will delete all your tasks, goals, diary entries, and progress. This cannot be undone.",
@@ -71,54 +117,111 @@ export default function SettingsScreen() {
 
       <ScrollView contentContainerStyle={{ paddingBottom: 60 }} showsVerticalScrollIndicator={false}>
         <View style={styles.content}>
+
           <SectionHeader title="APPEARANCE" />
-          <View style={[styles.themeRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={[styles.themeGrid, { backgroundColor: colors.card, borderColor: colors.border }]}>
             {THEMES.map((t) => (
               <TouchableOpacity
                 key={t.value}
-                onPress={() => updateProfile({ theme: t.value })}
+                onPress={async () => { await Haptics.selectionAsync(); updateProfile({ theme: t.value }); }}
                 style={[styles.themeBtn, {
                   backgroundColor: profile.theme === t.value ? colors.primary : colors.secondary,
                   borderColor: profile.theme === t.value ? colors.primary : colors.border,
                 }]}
               >
-                <Text style={[styles.themeBtnText, { color: profile.theme === t.value ? "#FFF" : colors.mutedForeground }]}>
-                  {t.label}
-                </Text>
+                <Ionicons name={t.icon as keyof typeof Ionicons.glyphMap} size={16} color={profile.theme === t.value ? "#FFF" : colors.mutedForeground} />
+                <Text style={[styles.themeBtnText, { color: profile.theme === t.value ? "#FFF" : colors.mutedForeground }]}>{t.label}</Text>
               </TouchableOpacity>
             ))}
           </View>
 
           <SectionHeader title="NOTIFICATIONS" />
           <View style={[styles.settingGroup, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <SettingRow icon="warning" label="Danger Zone Alerts" right={
-              <Switch value={profile.notificationsGranted} onValueChange={(v) => updateProfile({ notificationsGranted: v })} trackColor={{ false: colors.border, true: colors.primary }} thumbColor="#FFF" />
-            } />
-            <SettingRow icon="alarm" label="Task Reminders" right={
-              <Switch value={profile.notificationsGranted} onValueChange={(v) => updateProfile({ notificationsGranted: v })} trackColor={{ false: colors.border, true: colors.primary }} thumbColor="#FFF" />
-            } />
-            <SettingRow icon="sunny" label="Morning Briefing" right={
-              <Switch value={profile.notificationsGranted} onValueChange={(v) => updateProfile({ notificationsGranted: v })} trackColor={{ false: colors.border, true: colors.primary }} thumbColor="#FFF" />
-            } />
-            <SettingRow icon="happy" label="Mood Check-ins" right={
-              <Switch value={false} onValueChange={() => {}} trackColor={{ false: colors.border, true: colors.primary }} thumbColor="#FFF" />
-            } />
+            <SettingRow
+              icon="notifications"
+              iconColor="#6366F1"
+              label="Push Notifications"
+              subtitle={notifStatus === "granted" ? "Task reminders & alerts active" : "Tap to enable"}
+              onPress={notifStatus !== "granted" ? handleEnableNotifications : undefined}
+              right={<StatusBadge status={notifStatus === "granted" ? "on" : notifStatus === "undetermined" ? "partial" : "off"} />}
+            />
+            <SettingRow
+              icon="warning"
+              iconColor="#EF4444"
+              label="Danger Zone Alerts"
+              subtitle={`Alerts before ${dangerZone.dangerHours[0]}:00 distraction window`}
+              right={
+                <Switch
+                  value={profile.notificationsGranted && notifStatus === "granted"}
+                  onValueChange={async (v) => { await Haptics.selectionAsync(); if (v) handleEnableNotifications(); }}
+                  trackColor={{ false: colors.border, true: colors.primary }}
+                  thumbColor="#FFF"
+                />
+              }
+            />
+            <SettingRow
+              icon="sunny"
+              iconColor="#F59E0B"
+              label="Morning Briefing"
+              subtitle="Daily at 8:00 AM"
+              right={
+                <Switch
+                  value={profile.notificationsGranted && notifStatus === "granted"}
+                  onValueChange={async (v) => { await Haptics.selectionAsync(); if (v) scheduleDailyBriefing(8, 0); }}
+                  trackColor={{ false: colors.border, true: colors.primary }}
+                  thumbColor="#FFF"
+                />
+              }
+            />
           </View>
 
           <SectionHeader title="PRODUCTIVITY" />
           <View style={[styles.settingGroup, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <SettingRow icon="time" label="Default Focus Duration" right={<Text style={{ color: colors.mutedForeground, fontSize: 13 }}>25 min</Text>} onPress={() => {}} />
-            <SettingRow icon="bed" label="Sleep Schedule" right={<Text style={{ color: colors.mutedForeground, fontSize: 13 }}>{profile.sleepEnd} – {profile.sleepStart}</Text>} onPress={() => {}} />
-            <SettingRow icon="flash" label="Danger Zone Hours" right={<Text style={{ color: colors.mutedForeground, fontSize: 13 }}>2–4 PM</Text>} onPress={() => {}} />
+            <SettingRow icon="time" iconColor="#6366F1" label="Default Focus Duration" right={<Text style={{ color: colors.mutedForeground, fontSize: 13 }}>25 min</Text>} />
+            <SettingRow icon="bed" iconColor="#8B5CF6" label="Sleep Schedule" right={<Text style={{ color: colors.mutedForeground, fontSize: 13 }}>{profile.sleepEnd} – {profile.sleepStart}</Text>} />
+            <SettingRow icon="flash" iconColor="#F97316" label="Danger Zone Hours" right={<Text style={{ color: colors.mutedForeground, fontSize: 13 }}>{dangerZone.dangerHours[0]}–{(dangerZone.dangerHours[dangerZone.dangerHours.length - 1] ?? 15) + 1}:00</Text>} />
           </View>
 
-          <SectionHeader title="ACCOUNT" />
+          <SectionHeader title="SYNC & ACCOUNT" />
           <View style={[styles.settingGroup, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <SettingRow icon="person" label="Edit Profile" onPress={() => router.push("/profile")} />
-            <SettingRow icon="cloud-download" label="Export Data" onPress={() => {}} />
-            <SettingRow icon="key" label="Firebase Status" right={
-              <View style={[styles.statusDot, { backgroundColor: "#10B981" }]} />
-            } />
+            <SettingRow
+              icon="cloud"
+              iconColor="#6366F1"
+              label="Firebase Sync"
+              subtitle={isFirebaseConfigured
+                ? firebaseUserId ? `Connected · ${firebaseUserId.slice(0, 8)}...` : "Connecting..."
+                : "Add credentials in Replit Secrets"}
+              right={<StatusBadge status={isFirebaseConfigured && !!firebaseUserId ? "on" : isFirebaseConfigured ? "partial" : "off"} />}
+            />
+            <SettingRow icon="person" iconColor="#10B981" label="Edit Profile" onPress={() => router.push("/profile")} />
+            <SettingRow icon="download" iconColor="#F59E0B" label="Export Data" onPress={() => Alert.alert("Coming soon", "Data export will be available in a future update.")} />
+          </View>
+
+          <SectionHeader title="HOW TO CONNECT FIREBASE" />
+          <View style={[styles.firebaseGuide, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Text style={[styles.guideTitle, { color: colors.foreground }]}>Add your Firebase credentials</Text>
+            <Text style={[styles.guideText, { color: colors.mutedForeground }]}>
+              1. Go to Firebase Console → Project Settings → General
+              {"\n"}2. Under "Your apps" → Web app → SDK config
+              {"\n"}3. Open Replit Secrets (🔒 icon in the sidebar)
+              {"\n"}4. Add these 6 keys:
+            </Text>
+            {[
+              "EXPO_PUBLIC_FIREBASE_API_KEY",
+              "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN",
+              "EXPO_PUBLIC_FIREBASE_PROJECT_ID",
+              "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET",
+              "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID",
+              "EXPO_PUBLIC_FIREBASE_APP_ID",
+            ].map((k) => (
+              <View key={k} style={[styles.guideKey, { backgroundColor: colors.secondary }]}>
+                <Ionicons name="key-outline" size={12} color={colors.primary} />
+                <Text style={[styles.guideKeyText, { color: colors.primary }]}>{k}</Text>
+              </View>
+            ))}
+            <Text style={[styles.guideText, { color: colors.mutedForeground }]}>
+              5. Restart the app — data will sync automatically across devices.
+            </Text>
           </View>
 
           <SectionHeader title="DANGER ZONE" />
@@ -127,7 +230,7 @@ export default function SettingsScreen() {
             <SettingRow icon="trash" label="Delete All Data" onPress={handleReset} isDanger />
           </View>
 
-          <Text style={[styles.version, { color: colors.mutedForeground }]}>RAI v2.0 · Built with love</Text>
+          <Text style={[styles.version, { color: colors.mutedForeground }]}>RAI v2.0 · Powered by Groq · {isFirebaseConfigured ? "Firebase ✓" : "Local storage"}</Text>
         </View>
       </ScrollView>
     </View>
@@ -143,11 +246,20 @@ const styles = StyleSheet.create({
   settingGroup: { borderRadius: 14, borderWidth: 1, overflow: "hidden" },
   settingRow: { flexDirection: "row", alignItems: "center", padding: 16, borderBottomWidth: 1, gap: 12 },
   settingIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  settingLabel: { flex: 1, fontSize: 15, fontFamily: "Inter_500Medium" },
+  settingLabelCol: { flex: 1, gap: 2 },
+  settingLabel: { fontSize: 15, fontFamily: "Inter_500Medium" },
+  settingSubtitle: { fontSize: 12, fontFamily: "Inter_400Regular" },
   settingRight: { alignItems: "center", justifyContent: "center" },
-  themeRow: { flexDirection: "row", gap: 8, borderRadius: 14, borderWidth: 1, padding: 10 },
-  themeBtn: { flex: 1, borderRadius: 8, borderWidth: 1, paddingVertical: 8, alignItems: "center" },
-  themeBtnText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
-  statusDot: { width: 10, height: 10, borderRadius: 5 },
+  themeGrid: { flexDirection: "row", gap: 8, borderRadius: 14, borderWidth: 1, padding: 10 },
+  themeBtn: { flex: 1, borderRadius: 10, borderWidth: 1, paddingVertical: 10, alignItems: "center", gap: 4 },
+  themeBtnText: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
+  statusBadge: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
+  statusDot: { width: 7, height: 7, borderRadius: 4 },
+  statusText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  firebaseGuide: { borderRadius: 14, borderWidth: 1, padding: 16, gap: 10 },
+  guideTitle: { fontSize: 14, fontFamily: "Inter_700Bold" },
+  guideText: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 22 },
+  guideKey: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
+  guideKeyText: { fontSize: 11, fontFamily: "Inter_500Medium" },
   version: { fontSize: 12, fontFamily: "Inter_400Regular", textAlign: "center", marginTop: 16 },
 });

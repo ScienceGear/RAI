@@ -6,6 +6,8 @@ import { getItem, setItem, KEYS } from "@/lib/storage";
 import { getDefaultEnergyProfile, autoScheduleTask } from "@/lib/scheduler";
 import { categorizeTaskLocal } from "@/lib/categorizer";
 import { calculateTaskXP, levelFromXP, calculateRaiScore, DEFAULT_ACHIEVEMENTS, xpForLevel } from "@/lib/xp";
+import { isFirebaseConfigured, getOrCreateFirebaseUserId, firestoreSet, firestoreGet } from "@/lib/firebase";
+import { scheduleTaskReminder, cancelNotification, sendInstantNotification } from "@/lib/notifications";
 
 function genId(): string {
   return Date.now().toString() + Math.random().toString(36).substr(2, 9);
@@ -28,6 +30,7 @@ interface AppContextType {
   dangerZone: DangerZoneProfile;
   todayFocusScore: number;
   isLoaded: boolean;
+  firebaseUserId: string | null;
 
   updateProfile: (updates: Partial<UserProfile>) => Promise<void>;
   addTask: (task: Omit<Task, "id" | "createdAt" | "updatedAt" | "sessions" | "skippedCount" | "categoryOverridden" | "isQuickTask" | "completed" | "dependencies">) => Promise<Task>;
@@ -107,12 +110,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [activityFeed, setActivityFeed] = useState<ActivityFeedItem[]>([]);
   const [dangerZone] = useState<DangerZoneProfile>(defaultDangerZone);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [firebaseUserId, setFirebaseUserId] = useState<string | null>(null);
 
   useEffect(() => {
     loadAll();
   }, []);
 
   async function loadAll() {
+    // Try Firebase first if configured
+    let fbUserId: string | null = null;
+    if (isFirebaseConfigured) {
+      fbUserId = await getOrCreateFirebaseUserId();
+      setFirebaseUserId(fbUserId);
+    }
+
     const [p, t, g, d, m, fs, ach, sq, af] = await Promise.all([
       getItem<UserProfile>(KEYS.USER_PROFILE),
       getItem<Task[]>(KEYS.TASKS),
@@ -125,9 +136,38 @@ export function AppProvider({ children }: { children: ReactNode }) {
       getItem<ActivityFeedItem[]>(KEYS.ACTIVITY_FEED),
     ]);
 
+    // If Firebase available, try to load from cloud (more up-to-date)
+    if (fbUserId) {
+      const [fp, ft, fg, ffs] = await Promise.all([
+        firestoreGet<UserProfile>(fbUserId, "profile"),
+        firestoreGet<Task[]>(fbUserId, "tasks"),
+        firestoreGet<Goal[]>(fbUserId, "goals"),
+        firestoreGet<FocusSession[]>(fbUserId, "focusSessions"),
+      ]);
+      if (fp) {
+        const updated = updateStreak(fp);
+        setProfile(updated);
+        await setItem(KEYS.USER_PROFILE, updated);
+        setIsLoaded(true);
+        if (ft) { setTasks(ft); await setItem(KEYS.TASKS, ft); }
+        if (fg) { setGoals(fg); await setItem(KEYS.GOALS, fg); }
+        if (ffs) { setFocusSessions(ffs); await setItem(KEYS.FOCUS_SESSIONS, ffs); }
+        if (m) setMoodLogs(m);
+        if (d) setDiary(d);
+        if (ach) setAchievements(ach);
+        if (sq) setSquad(sq);
+        if (af) setActivityFeed(af);
+        return;
+      }
+    }
+
+    // Fall back to local storage
     if (p) {
       const updated = updateStreak(p);
       setProfile(updated);
+      // Save updated streak back to storage immediately
+      await setItem(KEYS.USER_PROFILE, updated);
+      if (fbUserId) firestoreSet(fbUserId, "profile", updated);
     }
     if (t) setTasks(t);
     if (g) setGoals(g);
@@ -164,13 +204,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }
 
+  const syncProfile = useCallback((p: UserProfile) => {
+    setItem(KEYS.USER_PROFILE, p);
+    if (firebaseUserId) firestoreSet(firebaseUserId, "profile", p);
+  }, [firebaseUserId]);
+
+  const syncTasks = useCallback((t: Task[]) => {
+    setItem(KEYS.TASKS, t);
+    if (firebaseUserId) firestoreSet(firebaseUserId, "tasks", t);
+  }, [firebaseUserId]);
+
   const updateProfile = useCallback(async (updates: Partial<UserProfile>) => {
     setProfile((prev) => {
       const next = { ...prev, ...updates };
-      setItem(KEYS.USER_PROFILE, next);
+      syncProfile(next);
       return next;
     });
-  }, []);
+  }, [syncProfile]);
 
   const addTask = useCallback(async (taskData: Omit<Task, "id" | "createdAt" | "updatedAt" | "sessions" | "skippedCount" | "categoryOverridden" | "isQuickTask" | "completed" | "dependencies">): Promise<Task> => {
     const category = taskData.categoryPrimary || categorizeTaskLocal(taskData.title);
@@ -188,30 +238,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updatedAt: new Date().toISOString(),
     };
 
+    // Schedule notification if time is set
+    if (newTask.scheduledDate && newTask.scheduledTime) {
+      await scheduleTaskReminder(newTask);
+    }
+
     setTasks((prev) => {
       const next = [newTask, ...prev];
-      setItem(KEYS.TASKS, next);
+      syncTasks(next);
       return next;
     });
 
     return newTask;
-  }, []);
+  }, [syncTasks]);
 
   const updateTask = useCallback(async (id: string, updates: Partial<Task>) => {
     setTasks((prev) => {
       const next = prev.map((t) => t.id === id ? { ...t, ...updates, updatedAt: new Date().toISOString() } : t);
-      setItem(KEYS.TASKS, next);
+      syncTasks(next);
       return next;
     });
-  }, []);
+  }, [syncTasks]);
 
   const deleteTask = useCallback(async (id: string) => {
     setTasks((prev) => {
       const next = prev.filter((t) => t.id !== id);
-      setItem(KEYS.TASKS, next);
+      syncTasks(next);
       return next;
     });
-  }, []);
+  }, [syncTasks]);
 
   const completeTask = useCallback(async (id: string) => {
     const task = tasks.find((t) => t.id === id);
@@ -223,7 +278,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const next = prev.map((t) =>
         t.id === id ? { ...t, completed: true, completedAt: new Date().toISOString(), updatedAt: new Date().toISOString() } : t
       );
-      setItem(KEYS.TASKS, next);
+      syncTasks(next);
       return next;
     });
 
@@ -238,8 +293,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         planningRate: 0.8,
         squadMembers: squad?.members.length ?? 0,
       });
+      const didLevelUp = newLevel > prev.level;
       const next = { ...prev, xp: newXP, level: newLevel, raiScore: Math.min(1000, newRaiScore), lastActiveDate: todayStr() };
-      setItem(KEYS.USER_PROFILE, next);
+      syncProfile(next);
+      if (didLevelUp) {
+        sendInstantNotification("🎉 Level Up!", `You reached Level ${newLevel}! Keep going!`);
+      }
       return next;
     });
 
@@ -258,7 +317,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
 
     checkAchievements(task, id);
-  }, [tasks, profile, focusSessions, squad]);
+  }, [tasks, profile, focusSessions, squad, syncTasks, syncProfile]);
 
   const scheduleTask = useCallback(async (taskId: string) => {
     const task = tasks.find((t) => t.id === taskId);
@@ -271,6 +330,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         scheduledTime: result.scheduledTime,
         schedulerRationale: result.rationale,
       });
+      await scheduleTaskReminder({ ...task, scheduledDate: result.scheduledDate, scheduledTime: result.scheduledTime });
     }
   }, [tasks, profile, updateTask]);
 
@@ -285,17 +345,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setGoals((prev) => {
       const next = [...prev, newGoal];
       setItem(KEYS.GOALS, next);
+      if (firebaseUserId) firestoreSet(firebaseUserId, "goals", next);
       return next;
     });
-  }, []);
+  }, [firebaseUserId]);
 
   const updateGoal = useCallback(async (id: string, updates: Partial<Goal>) => {
     setGoals((prev) => {
       const next = prev.map((g) => g.id === id ? { ...g, ...updates, updatedAt: new Date().toISOString() } : g);
       setItem(KEYS.GOALS, next);
+      if (firebaseUserId) firestoreSet(firebaseUserId, "goals", next);
       return next;
     });
-  }, []);
+  }, [firebaseUserId]);
 
   const addDiaryEntry = useCallback(async (entry: DiaryEntry) => {
     setDiary((prev) => {
@@ -329,13 +391,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setFocusSessions((prev) => {
       const next = [newSession, ...prev];
       setItem(KEYS.FOCUS_SESSIONS, next);
+      if (firebaseUserId) firestoreSet(firebaseUserId, "focusSessions", next);
       return next;
     });
     if (session.completed) {
       const xp = Math.round(session.completedMinutes * 1.5);
       await addXP(xp);
+      await sendInstantNotification(
+        "🎯 Focus session complete!",
+        `${session.taskTitle} · +${xp} XP earned`
+      );
     }
-  }, []);
+  }, [firebaseUserId]);
 
   const unlockAchievement = useCallback(async (id: string) => {
     setAchievements((prev) => {
@@ -346,6 +413,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       );
       setItem(KEYS.ACHIEVEMENTS, next);
       addXP(ach.xpReward);
+      sendInstantNotification("🏆 Achievement unlocked!", `${ach.name} — ${ach.description}`);
       return next;
     });
   }, []);
@@ -355,10 +423,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const newXP = prev.xp + amount;
       const newLevel = levelFromXP(newXP);
       const next = { ...prev, xp: newXP, level: newLevel };
-      setItem(KEYS.USER_PROFILE, next);
+      syncProfile(next);
       return next;
     });
-  }, []);
+  }, [syncProfile]);
 
   const resetOnboarding = useCallback(async () => {
     await AsyncStorage.clear();
@@ -374,15 +442,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   function checkAchievements(task: Task, _id: string) {
     const completedTasks = tasks.filter((t) => t.completed).length + 1;
-
     if (completedTasks === 1) unlockAchievement("first_task");
     if (completedTasks === 10) unlockAchievement("tasks_10");
     if (completedTasks === 100) unlockAchievement("tasks_100");
-
     const hour = new Date().getHours();
     if (hour < 8) unlockAchievement("early_bird");
     if (hour >= 22) unlockAchievement("night_owl");
-
     if (profile.streak >= 7) unlockAchievement("streak_7");
     if (profile.streak >= 30) unlockAchievement("streak_30");
   }
@@ -397,7 +462,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   return (
     <AppContext.Provider value={{
-      profile, tasks, goals, diary, moodLogs, focusSessions, achievements, squad, activityFeed, dangerZone, todayFocusScore, isLoaded,
+      profile, tasks, goals, diary, moodLogs, focusSessions, achievements, squad, activityFeed,
+      dangerZone, todayFocusScore, isLoaded, firebaseUserId,
       updateProfile, addTask, updateTask, deleteTask, completeTask, scheduleTask,
       addGoal, updateGoal, addDiaryEntry, updateDiaryEntry, logMood, addFocusSession,
       unlockAchievement, addXP, resetOnboarding,
