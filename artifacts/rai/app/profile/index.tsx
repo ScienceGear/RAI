@@ -14,7 +14,7 @@ import { useApp } from "@/contexts/AppContext";
 import { ProgressRing } from "@/components/ProgressRing";
 import { xpToNextLevel, getLevelTitle } from "@/lib/xp";
 import { getRaiScoreTier, getCategoryColor } from "@/constants/categories";
-import { uploadProfilePhoto } from "@/lib/firebase";
+import { encodeProfilePhoto } from "@/lib/firebase";
 
 const AVATAR_COLORS = [
   "#6366F1", "#8B5CF6", "#EC4899", "#EF4444",
@@ -24,7 +24,7 @@ const AVATAR_COLORS = [
 export default function ProfileScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { profile, updateProfile, tasks, focusSessions, achievements, firebaseUser } = useApp();
+  const { profile, updateProfile, tasks, focusSessions, achievements } = useApp();
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
 
   const [editing, setEditing] = useState(false);
@@ -77,19 +77,14 @@ export default function ProfileScreen() {
     if (!result.canceled && result.assets[0]) {
       const localUri = result.assets[0].uri;
       Haptics.selectionAsync();
-      if (firebaseUser?.uid) {
-        setIsUploadingPhoto(true);
-        try {
-          const downloadUrl = await uploadProfilePhoto(firebaseUser.uid, localUri);
-          setEditPhotoUri(downloadUrl);
-        } catch {
-          Alert.alert("Upload failed", "Couldn't save your photo. Please try again.");
-          setEditPhotoUri(localUri);
-        } finally {
-          setIsUploadingPhoto(false);
-        }
-      } else {
-        setEditPhotoUri(localUri);
+      setIsUploadingPhoto(true);
+      try {
+        const dataUri = await encodeProfilePhoto(localUri);
+        setEditPhotoUri(dataUri);
+      } catch {
+        Alert.alert("Processing failed", "Couldn't process your photo. Please try again.");
+      } finally {
+        setIsUploadingPhoto(false);
       }
     }
   };
@@ -174,7 +169,7 @@ export default function ProfileScreen() {
             <View style={styles.editAvatarActions}>
               <TouchableOpacity onPress={pickPhoto} disabled={isUploadingPhoto} style={[styles.avatarActionBtn, { backgroundColor: isUploadingPhoto ? colors.secondary : colors.primary, opacity: isUploadingPhoto ? 0.6 : 1 }]}>
                 {isUploadingPhoto ? <ActivityIndicator color="#FFF" size="small" /> : <Ionicons name="image" size={14} color="#FFF" />}
-                <Text style={styles.avatarActionText}>{isUploadingPhoto ? "Uploading…" : "Choose Photo"}</Text>
+                <Text style={styles.avatarActionText}>{isUploadingPhoto ? "Processing…" : "Choose Photo"}</Text>
               </TouchableOpacity>
               {editPhotoUri && (
                 <TouchableOpacity onPress={removePhoto} style={[styles.avatarActionBtn, { backgroundColor: colors.secondary, borderWidth: 1, borderColor: colors.border }]}>

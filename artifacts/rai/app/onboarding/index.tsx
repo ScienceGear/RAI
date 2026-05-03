@@ -14,7 +14,7 @@ import { useApp } from "@/contexts/AppContext";
 import { useColors } from "@/hooks/useColors";
 import { getDefaultEnergyProfile } from "@/lib/scheduler";
 import { generateOnboardingSummary } from "@/lib/ai";
-import { uploadProfilePhoto } from "@/lib/firebase";
+import { encodeProfilePhoto } from "@/lib/firebase";
 import { PrimaryFocus, Chronotype } from "@/types";
 
 type Step = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
@@ -55,7 +55,7 @@ const AVATAR_COLORS = [
 export default function Onboarding() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { updateProfile, firebaseUser } = useApp();
+  const { updateProfile } = useApp();
 
   const [step, setStep] = useState<Step>(0);
   const [name, setName] = useState("");
@@ -136,18 +136,14 @@ export default function Onboarding() {
     if (!result.canceled && result.assets[0]) {
       const localUri = result.assets[0].uri;
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      if (firebaseUser?.uid) {
-        setIsUploadingPhoto(true);
-        try {
-          const downloadUrl = await uploadProfilePhoto(firebaseUser.uid, localUri);
-          setPfpUri(downloadUrl);
-        } catch {
-          setPfpUri(localUri);
-        } finally {
-          setIsUploadingPhoto(false);
-        }
-      } else {
+      setIsUploadingPhoto(true);
+      try {
+        const dataUri = await encodeProfilePhoto(localUri);
+        setPfpUri(dataUri);
+      } catch {
         setPfpUri(localUri);
+      } finally {
+        setIsUploadingPhoto(false);
       }
     }
   };
@@ -218,7 +214,7 @@ export default function Onboarding() {
                 style={[styles.photoBtn, { backgroundColor: "#6366F1", opacity: isUploadingPhoto ? 0.6 : 1 }]}
               >
                 {isUploadingPhoto ? <ActivityIndicator color="#FFF" size="small" /> : <Ionicons name="image" size={16} color="#FFF" />}
-                <Text style={styles.photoBtnText}>{isUploadingPhoto ? "Uploading…" : pfpUri ? "Change Photo" : "Choose from Gallery"}</Text>
+                <Text style={styles.photoBtnText}>{isUploadingPhoto ? "Processing…" : pfpUri ? "Change Photo" : "Choose from Gallery"}</Text>
               </TouchableOpacity>
 
               {pfpUri && (
