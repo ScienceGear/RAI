@@ -1,5 +1,7 @@
 import React, { useState } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Platform, Linking, Alert } from "react-native";
+import {
+  View, Text, StyleSheet, TouchableOpacity, Platform, Linking, Alert,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
@@ -9,36 +11,47 @@ import * as Haptics from "expo-haptics";
 import { useApp } from "@/contexts/AppContext";
 import { requestNotificationPermission, scheduleDailyBriefing, scheduleDangerZoneAlert } from "@/lib/notifications";
 import { UsageStats } from "@/modules/usage-stats";
+import { AppBlocker } from "@/modules/app-blocker";
 
-const PERMISSIONS = [
+type PermId = "notifications" | "usage" | "blocker";
+
+const PERMISSIONS: {
+  id: PermId;
+  icon: React.ComponentProps<typeof Ionicons>["name"];
+  iconColor: string;
+  title: string;
+  why: string;
+  cta: string;
+  skip: string;
+}[] = [
   {
     id: "notifications",
-    icon: "notifications" as const,
+    icon: "notifications",
     iconColor: "#6366F1",
     title: "Stay on track",
-    why: "I'll remind you 15 min before each task, alert you when your danger zone starts, and send a morning briefing every day.",
+    why: "I'll remind you 15 min before each task, alert you before your danger zone starts, and send a morning briefing every day.",
     cta: "Enable Notifications",
     skip: "Skip — I'll miss reminders",
   },
   {
     id: "usage",
-    icon: "bar-chart" as const,
+    icon: "bar-chart",
     iconColor: "#F97316",
-    title: "Find your danger zone",
+    title: "See your screen time",
     why: Platform.OS === "android"
-      ? "To discover which hours drain your focus, I need access to your app usage patterns. Tap to open Android settings."
-      : "RAI tracks your focus sessions and habit patterns to calculate your personal danger zone — no device screen time access needed.",
-    cta: Platform.OS === "android" ? "Open Usage Settings" : "Got it",
+      ? "RAI reads your daily app usage to show exactly which apps eat your time and when your focus drops. Tap to open Android Settings — find RAI and enable it."
+      : "RAI tracks your focus sessions and habit patterns to calculate your personal danger zone.",
+    cta: Platform.OS === "android" ? "Open Usage Access Settings" : "Got it",
     skip: "Skip — Use default danger zone",
   },
   {
-    id: "microphone",
-    icon: "mic" as const,
-    iconColor: "#10B981",
-    title: "Voice task input",
-    why: "Add tasks in seconds by speaking. No typing needed — just say 'add gym tomorrow at 7am' and RAI handles the rest.",
-    cta: "Allow Microphone",
-    skip: "Skip — I'll type",
+    id: "blocker",
+    icon: "shield-checkmark",
+    iconColor: "#EF4444",
+    title: "Block distracting apps",
+    why: "When you open a blocked app, RAI intercepts it and asks for a voice or text commitment — giving you a 5-minute mindful break instead of doom-scrolling.",
+    cta: Platform.OS === "android" ? "Open Accessibility Settings" : "Got it",
+    skip: "Skip — No app blocking",
   },
 ];
 
@@ -50,54 +63,6 @@ export default function Permissions() {
   const topPad = insets.top > 0 ? insets.top : (Platform.OS === "web" ? 20 : 44);
   const current = PERMISSIONS[currentIndex];
 
-  const handleGrant = async () => {
-    setIsLoading(true);
-    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-    if (current.id === "notifications") {
-      const granted = await requestNotificationPermission();
-      if (granted) {
-        await updateProfile({ notificationsGranted: true });
-        await scheduleDailyBriefing(8, 0);
-        const firstDangerHour = dangerZone.dangerHours[0];
-        if (firstDangerHour && firstDangerHour > 0) {
-          await scheduleDangerZoneAlert(firstDangerHour);
-        }
-      } else {
-        Alert.alert(
-          "Notifications Blocked",
-          "To enable notifications, go to your device Settings > Notifications > RAI and turn them on.",
-          [
-            { text: "Open Settings", onPress: () => Linking.openSettings() },
-            { text: "Later", style: "cancel" },
-          ]
-        );
-        await updateProfile({ notificationsGranted: false });
-      }
-    } else if (current.id === "usage") {
-      if (Platform.OS === "android" && UsageStats.isAvailable()) {
-        await UsageStats.requestPermission();
-        // Check if granted after returning from settings
-        const granted = UsageStats.hasPermission();
-        await updateProfile({ usageStatsGranted: granted });
-        if (!granted) {
-          Alert.alert(
-            "Usage Access Needed",
-            "Go to Usage Access in your device Settings and enable it for RAI to track your screen time.",
-            [{ text: "OK" }]
-          );
-        }
-      } else {
-        await updateProfile({ usageStatsGranted: true });
-      }
-    } else if (current.id === "microphone") {
-      await updateProfile({ microphoneGranted: true });
-    }
-
-    setIsLoading(false);
-    advance();
-  };
-
   const advance = () => {
     if (currentIndex < PERMISSIONS.length - 1) {
       setCurrentIndex((i) => i + 1);
@@ -106,10 +71,72 @@ export default function Permissions() {
     }
   };
 
+  const handleGrant = async () => {
+    setIsLoading(true);
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+    try {
+      if (current.id === "notifications") {
+        const granted = await requestNotificationPermission();
+        await updateProfile({ notificationsGranted: granted });
+        if (granted) {
+          await scheduleDailyBriefing(8, 0);
+          const firstDangerHour = dangerZone.dangerHours[0];
+          if (firstDangerHour && firstDangerHour > 0) {
+            await scheduleDangerZoneAlert(firstDangerHour);
+          }
+        } else {
+          Alert.alert(
+            "Notifications Blocked",
+            "To enable later: Settings → Notifications → RAI → turn on.",
+            [
+              { text: "Open Settings", onPress: () => Linking.openSettings() },
+              { text: "OK", style: "cancel" },
+            ]
+          );
+        }
+
+      } else if (current.id === "usage") {
+        if (Platform.OS === "android") {
+          // Opens Usage Access settings. Resolves immediately — user needs to
+          // navigate to RAI and toggle. AppState listener in analytics.tsx
+          // picks up the grant when they return to the app.
+          await UsageStats.requestPermission();
+          // Mark as pending — will be updated when the user returns
+          await updateProfile({ usageStatsGranted: false });
+        } else {
+          await updateProfile({ usageStatsGranted: true });
+        }
+
+      } else if (current.id === "blocker") {
+        if (Platform.OS === "android") {
+          // Opens Accessibility Settings. Same pattern as usage.
+          await AppBlocker.requestAccessibilityPermission();
+          await updateProfile({ accessibilityGranted: false });
+        }
+      }
+    } catch {}
+
+    setIsLoading(false);
+    advance();
+  };
+
   const handleSkip = async () => {
     await Haptics.selectionAsync();
     advance();
   };
+
+  const getHint = (): string | null => {
+    if (current.id === "usage" && Platform.OS === "android") {
+      return "In the list that opens, find RAI and tap the toggle.";
+    }
+    if (current.id === "blocker" && Platform.OS === "android") {
+      return "In the list that opens, tap RAI and enable the service.";
+    }
+    return null;
+  };
+
+  const hint = getHint();
 
   return (
     <LinearGradient colors={["#0A0A0F", "#0D0B1A", "#130A28"]} style={{ flex: 1 }}>
@@ -134,6 +161,12 @@ export default function Permissions() {
           <View style={styles.textBlock}>
             <Text style={styles.title}>{current.title}</Text>
             <Text style={styles.why}>{current.why}</Text>
+            {hint && (
+              <View style={[styles.hintBox, { borderColor: current.iconColor + "44", backgroundColor: current.iconColor + "11" }]}>
+                <Ionicons name="information-circle-outline" size={14} color={current.iconColor} />
+                <Text style={[styles.hintText, { color: current.iconColor }]}>{hint}</Text>
+              </View>
+            )}
           </View>
 
           <View style={styles.btns}>
@@ -147,7 +180,7 @@ export default function Permissions() {
                 size={20}
                 color="#FFF"
               />
-              <Text style={styles.ctaBtnText}>{isLoading ? "Requesting..." : current.cta}</Text>
+              <Text style={styles.ctaBtnText}>{isLoading ? "Opening…" : current.cta}</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={handleSkip} style={styles.skipBtn}>
               <Text style={styles.skipText}>{current.skip}</Text>
@@ -169,6 +202,11 @@ const styles = StyleSheet.create({
   textBlock: { alignItems: "center", gap: 12 },
   title: { fontSize: 28, fontFamily: "Inter_700Bold", color: "#FFF", textAlign: "center" },
   why: { fontSize: 15, fontFamily: "Inter_400Regular", color: "#9CA3AF", textAlign: "center", lineHeight: 24 },
+  hintBox: {
+    flexDirection: "row", alignItems: "flex-start", gap: 6,
+    borderWidth: 1, borderRadius: 10, padding: 10, marginTop: 4,
+  },
+  hintText: { fontSize: 13, fontFamily: "Inter_500Medium", lineHeight: 18, flex: 1 },
   btns: { width: "100%", gap: 12 },
   ctaBtn: { borderRadius: 14, paddingVertical: 16, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: 10 },
   ctaBtnText: { fontSize: 16, fontFamily: "Inter_700Bold", color: "#FFF" },

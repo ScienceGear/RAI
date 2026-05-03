@@ -33,7 +33,7 @@ function HeatmapCell({ value, max }: { value: number; max: number }) {
 export default function AnalyticsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { profile, tasks, focusSessions, dangerZone, brainState, todayFocusScore } = useApp();
+  const { profile, tasks, focusSessions, dangerZone, brainState, todayFocusScore, updateProfile } = useApp();
   const [activeTab, setActiveTab] = useState<Tab>("score");
   const [usagePermission, setUsagePermission] = useState<"granted" | "denied" | "unavailable">(
     UsageStats.isAvailable() ? (UsageStats.hasPermission() ? "granted" : "denied") : "unavailable"
@@ -42,19 +42,25 @@ export default function AnalyticsScreen() {
   const [loadingUsage, setLoadingUsage] = useState(false);
   const appStateRef = useRef(AppState.currentState);
 
-  // Re-check usage permission whenever the app comes back to the foreground
+  // Re-check usage permission whenever the app comes back to the foreground.
+  // This fires after the user returns from Usage Access or Accessibility Settings.
   useEffect(() => {
     const sub = AppState.addEventListener("change", (nextState) => {
       if (appStateRef.current.match(/inactive|background/) && nextState === "active") {
         if (UsageStats.isAvailable()) {
           const granted = UsageStats.hasPermission();
-          setUsagePermission(granted ? "granted" : "denied");
+          const next = granted ? "granted" : "denied";
+          setUsagePermission(next);
+          // Sync to profile so the permission status persists
+          if (granted && !profile.usageStatsGranted) {
+            updateProfile({ usageStatsGranted: true });
+          }
         }
       }
       appStateRef.current = nextState;
     });
     return () => sub.remove();
-  }, []);
+  }, [profile.usageStatsGranted]);
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const scoreTier = getRaiScoreTier(profile.raiScore);
