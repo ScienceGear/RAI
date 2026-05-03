@@ -218,6 +218,25 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* ── Quick Access ── */}
+        <View style={styles.quickRow}>
+          {[
+            { label: "Goals", icon: "flag", color: "#8B5CF6", onPress: () => router.push("/goals") },
+            { label: "Achievements", icon: "trophy", color: "#F59E0B", onPress: () => router.push("/achievements") },
+            { label: "Diary", icon: "journal", color: "#10B981", onPress: () => router.push("/diary") },
+          ].map((item) => (
+            <TouchableOpacity
+              key={item.label}
+              onPress={item.onPress}
+              style={[styles.quickChip, { backgroundColor: item.color + "18", borderColor: item.color + "33" }]}
+              activeOpacity={0.7}
+            >
+              <Ionicons name={item.icon as keyof typeof Ionicons.glyphMap} size={16} color={item.color} />
+              <Text style={[styles.quickChipText, { color: item.color }]}>{item.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
         {/* ── Today's Schedule ── */}
         <View style={styles.body}>
           <View style={styles.sectionHeader}>
@@ -390,7 +409,11 @@ const styles = StyleSheet.create({
   insightSkeleton: { height: 12, borderRadius: 6, width: "90%" },
   insightSkeletonShort: { height: 12, borderRadius: 6, width: "65%", marginTop: 8 },
 
-  focusSection: { paddingHorizontal: 20, marginBottom: 20 },
+  quickRow: { flexDirection: "row", gap: 8, paddingHorizontal: 20, marginBottom: 20 },
+  quickChip: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 12, borderWidth: 1, paddingVertical: 11 },
+  quickChipText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+
+  focusSection: { paddingHorizontal: 20, marginBottom: 12 },
   startFocusBtn: { borderRadius: 16, overflow: "hidden" },
   startFocusGradient: { flexDirection: "row", alignItems: "center", paddingHorizontal: 20, paddingVertical: 18, gap: 12 },
   startFocusIcon: { width: 32, height: 32, borderRadius: 16, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
