@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl,
-  useColorScheme, Platform, Animated,
+  useColorScheme, Platform, Animated, Image,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons, Feather } from "@expo/vector-icons";
@@ -157,10 +157,14 @@ export default function HomeScreen() {
                 <Ionicons name="happy-outline" size={20} color={colors.mutedForeground} />
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.iconBtn, { backgroundColor: colors.primary }]}
+                style={[styles.iconBtn, { backgroundColor: profile.avatarUrl ? "transparent" : (profile.avatarColor ?? colors.primary), borderWidth: 0 }]}
                 onPress={() => router.push("/profile")}
               >
-                <Text style={styles.avatarText}>{(profile.firstName?.[0] ?? "U").toUpperCase()}</Text>
+                {profile.avatarUrl ? (
+                  <Image source={{ uri: profile.avatarUrl }} style={styles.avatarImg} />
+                ) : (
+                  <Text style={styles.avatarText}>{(profile.firstName?.[0] ?? "U").toUpperCase()}</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -417,8 +421,9 @@ const styles = StyleSheet.create({
   greeting: { fontSize: 13, fontFamily: "Inter_400Regular", marginBottom: 2 },
   userName: { fontSize: 24, fontFamily: "Inter_700Bold" },
   topActions: { flexDirection: "row", gap: 10, alignItems: "center" },
-  iconBtn: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  iconBtn: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: "center", justifyContent: "center", overflow: "hidden" },
   avatarText: { fontSize: 15, fontFamily: "Inter_700Bold", color: "#FFF" },
+  avatarImg: { width: 40, height: 40, borderRadius: 20 },
 
   cardSection: { paddingHorizontal: 20, gap: 10, marginBottom: 4 },
   scoreCard: { borderRadius: 20, padding: 24, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
