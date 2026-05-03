@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform } from "
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 
 import { useColors } from "@/hooks/useColors";
@@ -28,9 +28,12 @@ export default function FocusScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { tasks, addFocusSession, completeTask } = useApp();
+  const { taskId } = useLocalSearchParams<{ taskId?: string }>();
 
   const today = new Date().toISOString().split("T")[0];
-  const nextTask = tasks.find((t) => t.scheduledDate === today && !t.completed && t.scheduledTime);
+  const nextTask = taskId
+    ? tasks.find((t) => t.id === taskId)
+    : tasks.find((t) => t.scheduledDate === today && !t.completed && t.scheduledTime);
 
   const [selectedMode, setSelectedMode] = useState<TimerMode>("pomodoro");
   const [selectedTask, setSelectedTask] = useState<Task | undefined>(nextTask);

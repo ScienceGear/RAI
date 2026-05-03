@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl,
-  useColorScheme, Platform,
+  useColorScheme, Platform, Modal, Pressable,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons, Feather } from "@expo/vector-icons";
@@ -29,10 +29,11 @@ export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const isDark = useColorScheme() === "dark";
-  const { profile, tasks, focusSessions, dangerZone, todayFocusScore } = useApp();
+  const { profile, tasks, dangerZone, todayFocusScore } = useApp();
 
   const [showTaskSheet, setShowTaskSheet] = useState(false);
   const [showMood, setShowMood] = useState(false);
+  const [showFocusPicker, setShowFocusPicker] = useState(false);
   const [aiInsight, setAIInsight] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | undefined>();
@@ -43,6 +44,7 @@ export default function HomeScreen() {
     if (!b.scheduledTime) return -1;
     return a.scheduledTime.localeCompare(b.scheduledTime);
   });
+  const incompleteTodayTasks = todayTasks.filter((t) => !t.completed);
   const completedToday = todayTasks.filter((t) => t.completed).length;
   const unscheduled = tasks.filter((t) => !t.scheduledDate && !t.completed).slice(0, 3);
   const currentHour = new Date().getHours();
@@ -72,6 +74,15 @@ export default function HomeScreen() {
     setRefreshing(false);
   }, []);
 
+  const handleStartFocus = (taskId?: string) => {
+    setShowFocusPicker(false);
+    if (taskId) {
+      router.push({ pathname: "/focus", params: { taskId } });
+    } else {
+      router.push("/focus");
+    }
+  };
+
   const topPadding = Platform.OS === "web" ? 56 : insets.top;
   const tabBarHeight = Platform.OS === "web" ? 84 : 60 + insets.bottom;
 
@@ -80,7 +91,7 @@ export default function HomeScreen() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
-        contentContainerStyle={{ paddingBottom: tabBarHeight + 80 }}
+        contentContainerStyle={{ paddingBottom: tabBarHeight + 24 }}
       >
         {/* ── Header ── */}
         <View style={[styles.header, { paddingTop: topPadding + 16, backgroundColor: colors.background }]}>
@@ -181,6 +192,28 @@ export default function HomeScreen() {
           </View>
         )}
 
+        {/* ── Start Focus ── */}
+        <View style={styles.focusSection}>
+          <TouchableOpacity
+            onPress={() => setShowFocusPicker(true)}
+            style={styles.startFocusBtn}
+            activeOpacity={0.85}
+          >
+            <LinearGradient
+              colors={["#4F46E5", "#7C3AED"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.startFocusGradient}
+            >
+              <View style={styles.startFocusIcon}>
+                <Ionicons name="play" size={16} color="#FFF" />
+              </View>
+              <Text style={styles.startFocusText}>Start Focus Session</Text>
+              <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.6)" />
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+
         {/* ── Today's Schedule ── */}
         <View style={styles.body}>
           <View style={styles.sectionHeader}>
@@ -246,22 +279,72 @@ export default function HomeScreen() {
         </View>
       </ScrollView>
 
-      {/* ── FAB ── */}
+      {/* ── Add Task FAB ── */}
       <View style={[styles.fab, { paddingBottom: insets.bottom + 72, ...(Platform.OS === "web" ? { paddingBottom: 96 } : {}) }]}>
         <TouchableOpacity
-          onPress={() => router.push("/focus")}
-          style={[styles.focusBtn, { backgroundColor: colors.primary }]}
-        >
-          <Ionicons name="play" size={18} color="#FFF" />
-          <Text style={styles.focusBtnText}>Start Focus</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
           onPress={() => { setEditingTask(undefined); setShowTaskSheet(true); }}
-          style={[styles.addFab, { backgroundColor: colors.card, borderColor: colors.border }]}
+          style={[styles.addFab, { backgroundColor: colors.primary }]}
         >
-          <Ionicons name="add" size={22} color={colors.primary} />
+          <Ionicons name="add" size={24} color="#FFF" />
+          <Text style={styles.addFabText}>Add Task</Text>
         </TouchableOpacity>
       </View>
+
+      {/* ── Focus Task Picker Modal ── */}
+      <Modal
+        visible={showFocusPicker}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowFocusPicker(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setShowFocusPicker(false)}>
+          <Pressable style={[styles.modalSheet, { backgroundColor: colors.card }]} onPress={() => {}}>
+            <View style={[styles.modalHandle, { backgroundColor: colors.border }]} />
+            <Text style={[styles.modalTitle, { color: colors.foreground }]}>What are you working on?</Text>
+            <Text style={[styles.modalSubtitle, { color: colors.mutedForeground }]}>Pick a task to link to this focus session</Text>
+
+            <ScrollView style={styles.taskList} showsVerticalScrollIndicator={false}>
+              {incompleteTodayTasks.length === 0 ? (
+                <View style={[styles.noTasksRow, { borderColor: colors.border }]}>
+                  <Feather name="inbox" size={20} color={colors.mutedForeground} />
+                  <Text style={[styles.noTasksText, { color: colors.mutedForeground }]}>No tasks scheduled today</Text>
+                </View>
+              ) : (
+                incompleteTodayTasks.map((task) => (
+                  <TouchableOpacity
+                    key={task.id}
+                    onPress={() => handleStartFocus(task.id)}
+                    style={[styles.taskPickerRow, { borderColor: colors.border }]}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.taskPickerDot, { backgroundColor: colors.primary }]} />
+                    <View style={styles.taskPickerInfo}>
+                      <Text style={[styles.taskPickerTitle, { color: colors.foreground }]} numberOfLines={1}>
+                        {task.title}
+                      </Text>
+                      {task.scheduledTime && (
+                        <Text style={[styles.taskPickerTime, { color: colors.mutedForeground }]}>
+                          {task.scheduledTime}
+                        </Text>
+                      )}
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+                  </TouchableOpacity>
+                ))
+              )}
+            </ScrollView>
+
+            <TouchableOpacity
+              onPress={() => handleStartFocus()}
+              style={[styles.skipBtn, { borderColor: colors.border }]}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="play-circle-outline" size={20} color={colors.mutedForeground} />
+              <Text style={[styles.skipText, { color: colors.mutedForeground }]}>Just focus — no task</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <TaskSheet
         visible={showTaskSheet}
@@ -302,7 +385,7 @@ const styles = StyleSheet.create({
   statLabel: { fontSize: 11, fontFamily: "Inter_400Regular" },
   statDivider: { width: 1, height: 32 },
 
-  insightCard: { marginHorizontal: 20, marginBottom: 4, borderRadius: 16, borderWidth: 1, padding: 16, gap: 10 },
+  insightCard: { marginHorizontal: 20, marginBottom: 16, borderRadius: 16, borderWidth: 1, padding: 16, gap: 10 },
   insightHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
   raiPill: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
   raiPillText: { fontSize: 10, fontFamily: "Inter_700Bold", color: "#FFF", letterSpacing: 0.5 },
@@ -311,7 +394,13 @@ const styles = StyleSheet.create({
   insightSkeleton: { height: 12, borderRadius: 6, width: "90%" },
   insightSkeletonShort: { height: 12, borderRadius: 6, width: "65%", marginTop: 8 },
 
-  body: { paddingHorizontal: 20, paddingTop: 16, gap: 12 },
+  focusSection: { paddingHorizontal: 20, marginBottom: 20 },
+  startFocusBtn: { borderRadius: 16, overflow: "hidden" },
+  startFocusGradient: { flexDirection: "row", alignItems: "center", paddingHorizontal: 20, paddingVertical: 18, gap: 12 },
+  startFocusIcon: { width: 32, height: 32, borderRadius: 16, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
+  startFocusText: { flex: 1, fontSize: 16, fontFamily: "Inter_700Bold", color: "#FFF" },
+
+  body: { paddingHorizontal: 20, gap: 12 },
   sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   sectionTitle: { fontSize: 17, fontFamily: "Inter_700Bold" },
   addBtn: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center" },
@@ -326,8 +415,26 @@ const styles = StyleSheet.create({
   scheduleAllBtn: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 10, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 7 },
   scheduleAllText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
 
-  fab: { position: "absolute", bottom: 0, left: 0, right: 0, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 20 },
-  focusBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 16, paddingVertical: 16 },
-  focusBtnText: { fontSize: 15, fontFamily: "Inter_700Bold", color: "#FFF" },
-  addFab: { width: 52, height: 52, borderRadius: 26, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  fab: { position: "absolute", bottom: 0, left: 0, right: 0, paddingHorizontal: 20 },
+  addFab: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 16, paddingVertical: 14 },
+  addFabText: { fontSize: 15, fontFamily: "Inter_700Bold", color: "#FFF" },
+
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" },
+  modalSheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 20, paddingTop: 12, paddingBottom: 36, maxHeight: "75%" },
+  modalHandle: { width: 36, height: 4, borderRadius: 2, alignSelf: "center", marginBottom: 20 },
+  modalTitle: { fontSize: 20, fontFamily: "Inter_700Bold", marginBottom: 4 },
+  modalSubtitle: { fontSize: 13, fontFamily: "Inter_400Regular", marginBottom: 20 },
+
+  taskList: { maxHeight: 300 },
+  noTasksRow: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderRadius: 12, padding: 16 },
+  noTasksText: { fontSize: 14, fontFamily: "Inter_400Regular" },
+
+  taskPickerRow: { flexDirection: "row", alignItems: "center", gap: 12, borderBottomWidth: 1, paddingVertical: 16 },
+  taskPickerDot: { width: 10, height: 10, borderRadius: 5 },
+  taskPickerInfo: { flex: 1 },
+  taskPickerTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  taskPickerTime: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
+
+  skipBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderWidth: 1, borderRadius: 14, paddingVertical: 14, marginTop: 16 },
+  skipText: { fontSize: 14, fontFamily: "Inter_500Medium" },
 });
