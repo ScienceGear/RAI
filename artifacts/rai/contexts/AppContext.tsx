@@ -7,6 +7,7 @@ import { getItem, setItem, KEYS } from "@/lib/storage";
 import { getDefaultEnergyProfile, autoScheduleTask } from "@/lib/scheduler";
 import { categorizeTaskLocal } from "@/lib/categorizer";
 import { calculateTaskXP, levelFromXP, calculateRaiScore, DEFAULT_ACHIEVEMENTS } from "@/lib/xp";
+import { computeBrainState, computeDangerZoneHours, computeDistractionPatterns, BrainState } from "@/lib/brainstate";
 import {
   firestoreSet, firestoreGetAll, firestoreSetAll, firestoreSubscribe,
   createSquad as fsCreateSquad, joinSquad as fsJoinSquad,
@@ -31,6 +32,7 @@ interface AppContextType {
   squad: Squad | null;
   activityFeed: ActivityFeedItem[];
   dangerZone: DangerZoneProfile;
+  brainState: BrainState;
   todayFocusScore: number;
   isLoaded: boolean;
   isAuthReady: boolean;
@@ -117,7 +119,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [achievements, setAchievements] = useState<Achievement[]>(DEFAULT_ACHIEVEMENTS);
   const [squad, setSquad] = useState<Squad | null>(null);
   const [activityFeed, setActivityFeed] = useState<ActivityFeedItem[]>([]);
-  const [dangerZone] = useState<DangerZoneProfile>(defaultDangerZone);
+  const [dangerZone, setDangerZone] = useState<DangerZoneProfile>(defaultDangerZone);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
@@ -543,10 +545,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
     Math.min(40, todayFocusMinutes / 2)
   ));
 
+  // Recompute danger zone from actual usage data
+  useEffect(() => {
+    const dangerHours = computeDangerZoneHours(focusSessions, moodLogs);
+    const distractions = computeDistractionPatterns(tasks, focusSessions);
+    const isBootstrap = focusSessions.length < 5;
+    setDangerZone({
+      dangerHours: dangerHours.length > 0 ? dangerHours : [14, 15, 22, 23],
+      topDistractionApps: distractions,
+      weakestDayOfWeek: 6,
+      doomLoopSequences: [],
+      dataPointsCount: Math.max(0, focusSessions.length - 5),
+      isBootstrapEstimate: isBootstrap,
+      lastComputedAt: new Date().toISOString(),
+    });
+  }, [focusSessions.length, moodLogs.length, tasks.length]);
+
+  // Brain state — recomputed whenever dependencies change
+  const brainState: BrainState = computeBrainState({
+    focusSessions,
+    moodLogs,
+    tasks,
+    todayFocusScore,
+    streak: profile.streak,
+  });
+
   return (
     <AppContext.Provider value={{
       profile, tasks, goals, diary, moodLogs, focusSessions, achievements, squad, activityFeed,
-      dangerZone, todayFocusScore, isLoaded, isAuthReady, firebaseUser, firebaseUserId: uid,
+      dangerZone, brainState, todayFocusScore, isLoaded, isAuthReady, firebaseUser, firebaseUserId: uid,
       updateProfile, addTask, updateTask, deleteTask, completeTask, scheduleTask,
       addGoal, updateGoal, addDiaryEntry, updateDiaryEntry, logMood, addFocusSession,
       unlockAchievement, addXP, resetOnboarding, signOut,

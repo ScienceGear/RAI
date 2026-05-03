@@ -31,7 +31,7 @@ function HeatmapCell({ value, max }: { value: number; max: number }) {
 export default function AnalyticsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { profile, tasks, focusSessions, dangerZone, todayFocusScore } = useApp();
+  const { profile, tasks, focusSessions, dangerZone, brainState, todayFocusScore } = useApp();
   const [activeTab, setActiveTab] = useState<Tab>("score");
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
@@ -94,6 +94,16 @@ export default function AnalyticsScreen() {
           </ProgressRing>
           <Text style={[styles.tierTitle, { color: colors.foreground }]}>{scoreTier.title}</Text>
           <Text style={[styles.levelLabel, { color: colors.mutedForeground }]}>Level {profile.level} · {levelTitle}</Text>
+          <View style={[styles.brainStateRow, { backgroundColor: brainState.color + "18", borderColor: brainState.color + "44" }]}>
+            <Text style={styles.brainStateEmoji}>{brainState.emoji}</Text>
+            <View>
+              <Text style={[styles.brainStateLabel, { color: brainState.color }]}>{brainState.label}</Text>
+              <Text style={[styles.brainStateDesc, { color: colors.mutedForeground }]}>{brainState.description}</Text>
+            </View>
+            <View style={[styles.brainScoreBadge, { backgroundColor: brainState.color + "22" }]}>
+              <Text style={[styles.brainScoreVal, { color: brainState.color }]}>{brainState.score}</Text>
+            </View>
+          </View>
         </View>
         <View style={[styles.xpBar, { backgroundColor: colors.border }]}>
           <View style={[styles.xpFill, { width: `${xpInfo.progress * 100}%`, backgroundColor: colors.primary }]} />
@@ -409,4 +419,10 @@ const styles = StyleSheet.create({
   catBarWrap: { flex: 1 },
   catMins: { width: 36, fontSize: 12, fontFamily: "Inter_400Regular", textAlign: "right" },
   emptyText: { fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "center", paddingVertical: 12 },
+  brainStateRow: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 14, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 12, alignSelf: "stretch" },
+  brainStateEmoji: { fontSize: 24 },
+  brainStateLabel: { fontSize: 15, fontFamily: "Inter_700Bold" },
+  brainStateDesc: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
+  brainScoreBadge: { marginLeft: "auto", borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
+  brainScoreVal: { fontSize: 18, fontFamily: "Inter_700Bold" },
 });

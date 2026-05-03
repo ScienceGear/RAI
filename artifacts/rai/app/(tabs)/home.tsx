@@ -29,7 +29,7 @@ export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const isDark = useColorScheme() === "dark";
-  const { profile, tasks, dangerZone, todayFocusScore } = useApp();
+  const { profile, tasks, dangerZone, brainState, todayFocusScore } = useApp();
 
   const [showTaskSheet, setShowTaskSheet] = useState(false);
   const [showMood, setShowMood] = useState(false);
@@ -130,6 +130,10 @@ export default function HomeScreen() {
               <Text style={styles.scoreBigNumber}>{todayFocusScore}</Text>
               <View style={[styles.tierBadge, { backgroundColor: "rgba(255,255,255,0.15)" }]}>
                 <Text style={styles.tierText}>{scoreTier.title}</Text>
+              </View>
+              <View style={[styles.brainStateBadge, { backgroundColor: "rgba(255,255,255,0.1)", borderColor: "rgba(255,255,255,0.18)" }]}>
+                <Text style={styles.brainStateEmoji}>{brainState.emoji}</Text>
+                <Text style={styles.brainStateLabel}>{brainState.label}</Text>
               </View>
             </View>
             <ProgressRing
@@ -363,6 +367,9 @@ const styles = StyleSheet.create({
   scoreBigNumber: { fontSize: 52, fontFamily: "Inter_700Bold", color: "#FFF", lineHeight: 58 },
   tierBadge: { alignSelf: "flex-start", borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
   tierText: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: "#FFF" },
+  brainStateBadge: { flexDirection: "row", alignItems: "center", gap: 5, alignSelf: "flex-start", borderRadius: 20, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 4 },
+  brainStateEmoji: { fontSize: 13 },
+  brainStateLabel: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: "#FFF" },
   ringPercent: { fontSize: 18, fontFamily: "Inter_700Bold", color: "#FFF" },
 
   dangerBanner: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 12, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 10 },
