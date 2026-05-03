@@ -1,8 +1,12 @@
-import React from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform } from "react-native";
+import React, { useState, useRef } from "react";
+import {
+  View, Text, StyleSheet, ScrollView, TouchableOpacity,
+  Platform, TextInput, Alert, Animated,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
+import * as Haptics from "expo-haptics";
 
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/contexts/AppContext";
@@ -10,11 +14,32 @@ import { ProgressRing } from "@/components/ProgressRing";
 import { xpToNextLevel, getLevelTitle } from "@/lib/xp";
 import { getRaiScoreTier, getCategoryColor } from "@/constants/categories";
 
+const AVATAR_COLORS = [
+  "#6366F1", "#8B5CF6", "#EC4899", "#EF4444",
+  "#F97316", "#10B981", "#0EA5E9", "#F59E0B",
+];
+
+function ColorDot({ color, selected, onPress }: { color: string; selected: boolean; onPress: () => void }) {
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      style={[styles.colorDot, { backgroundColor: color, borderWidth: selected ? 3 : 0, borderColor: "#FFF" }]}
+    />
+  );
+}
+
 export default function ProfileScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { profile, tasks, focusSessions, achievements } = useApp();
+  const { profile, updateProfile, tasks, focusSessions, achievements } = useApp();
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
+
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState(profile.name);
+  const [editAge, setEditAge] = useState(String(profile.age ?? ""));
+  const [editColor, setEditColor] = useState(profile.avatarColor ?? "#6366F1");
+
+  const saveDebounce = useRef<ReturnType<typeof setTimeout>>();
 
   const xpInfo = xpToNextLevel(profile.xp);
   const levelTitle = getLevelTitle(profile.level);
@@ -28,98 +53,218 @@ export default function ProfileScreen() {
     return acc;
   }, {} as Record<string, number>);
 
+  const startEdit = () => {
+    setEditName(profile.name);
+    setEditAge(String(profile.age ?? ""));
+    setEditColor(profile.avatarColor ?? "#6366F1");
+    setEditing(true);
+    Haptics.selectionAsync();
+  };
+
+  const cancelEdit = () => {
+    setEditing(false);
+    Haptics.selectionAsync();
+  };
+
+  const saveEdit = () => {
+    if (!editName.trim()) {
+      Alert.alert("Name required", "Please enter your name.");
+      return;
+    }
+    if (saveDebounce.current) clearTimeout(saveDebounce.current);
+    saveDebounce.current = setTimeout(async () => {
+      const ageNum = editAge.trim() ? parseInt(editAge.trim(), 10) : undefined;
+      if (editAge.trim() && (isNaN(ageNum!) || ageNum! < 5 || ageNum! > 120)) {
+        Alert.alert("Invalid Age", "Please enter an age between 5 and 120.");
+        return;
+      }
+      const firstName = editName.trim().split(" ")[0];
+      await updateProfile({ name: editName.trim(), firstName, avatarColor: editColor, age: ageNum });
+      setEditing(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }, 300);
+  };
+
+  const avatarColor = editing ? editColor : (profile.avatarColor ?? "#6366F1");
+  const initials = (editing ? editName : profile.name)
+    .trim()
+    .split(" ")
+    .map((w) => w[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase() || "U";
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: topPadding + 8, backgroundColor: colors.background, borderBottomColor: colors.border }]}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={24} color={colors.foreground} />
+        <TouchableOpacity onPress={editing ? cancelEdit : () => router.back()}>
+          <Ionicons name={editing ? "close" : "chevron-back"} size={24} color={colors.foreground} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.foreground }]}>Profile</Text>
-        <TouchableOpacity onPress={() => router.push("/settings")}>
-          <Ionicons name="settings-outline" size={22} color={colors.foreground} />
-        </TouchableOpacity>
+        <Text style={[styles.headerTitle, { color: colors.foreground }]}>{editing ? "Edit Profile" : "Profile"}</Text>
+        {editing ? (
+          <TouchableOpacity onPress={saveEdit}>
+            <Text style={[styles.saveText, { color: colors.primary }]}>Save</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity onPress={startEdit}>
+            <Ionicons name="pencil" size={20} color={colors.foreground} />
+          </TouchableOpacity>
+        )}
       </View>
 
-      <ScrollView contentContainerStyle={{ paddingBottom: 60 }} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={{ paddingBottom: 60 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+
+        {/* ── Hero / Avatar ── */}
         <View style={[styles.heroSection, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
-          <View style={[styles.avatarLarge, { backgroundColor: colors.primary }]}>
-            <Text style={styles.avatarLargeText}>{profile.firstName[0]?.toUpperCase()}</Text>
+          <View style={[styles.avatarLarge, { backgroundColor: avatarColor }]}>
+            <Text style={styles.avatarLargeText}>{initials}</Text>
           </View>
-          <Text style={[styles.userName, { color: colors.foreground }]}>{profile.name}</Text>
-          <Text style={[styles.userTier, { color: colors.accent }]}>{scoreTier.title}</Text>
-          <View style={styles.streakRow}>
-            <Ionicons name="flame" size={16} color="#F97316" />
-            <Text style={[styles.streakText, { color: colors.foreground }]}>{profile.streak}-day streak</Text>
-          </View>
+
+          {editing ? (
+            <View style={styles.colorPicker}>
+              <Text style={[styles.colorPickerLabel, { color: colors.mutedForeground }]}>Avatar color</Text>
+              <View style={styles.colorDotRow}>
+                {AVATAR_COLORS.map((c) => (
+                  <ColorDot
+                    key={c} color={c} selected={editColor === c}
+                    onPress={() => { setEditColor(c); Haptics.selectionAsync(); }}
+                  />
+                ))}
+              </View>
+            </View>
+          ) : (
+            <>
+              <Text style={[styles.userName, { color: colors.foreground }]}>{profile.name}</Text>
+              {profile.age ? (
+                <Text style={[styles.userAge, { color: colors.mutedForeground }]}>Age {profile.age}</Text>
+              ) : null}
+              <Text style={[styles.userTier, { color: colors.accent }]}>{scoreTier.title}</Text>
+              <View style={styles.streakRow}>
+                <Ionicons name="flame" size={16} color="#F97316" />
+                <Text style={[styles.streakText, { color: colors.foreground }]}>{profile.streak}-day streak</Text>
+              </View>
+            </>
+          )}
         </View>
 
-        <View style={styles.content}>
-          <View style={[styles.levelCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <ProgressRing size={80} strokeWidth={7} progress={xpInfo.progress} gradient trackColor={colors.border}>
-              <Text style={[styles.levelNum, { color: colors.primary }]}>{profile.level}</Text>
-            </ProgressRing>
-            <View style={styles.levelInfo}>
-              <Text style={[styles.levelTitle, { color: colors.foreground }]}>Level {profile.level} · {levelTitle}</Text>
-              <Text style={[styles.levelXP, { color: colors.mutedForeground }]}>{profile.xp} total XP</Text>
-              <View style={[styles.xpBar, { backgroundColor: colors.border }]}>
-                <View style={[styles.xpFill, { width: `${xpInfo.progress * 100}%`, backgroundColor: colors.primary }]} />
+        {/* ── Edit Fields ── */}
+        {editing && (
+          <View style={{ padding: 16, gap: 14 }}>
+            <View style={[styles.fieldGroup, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <View style={styles.fieldRow}>
+                <View style={[styles.fieldIcon, { backgroundColor: "#6366F122" }]}>
+                  <Ionicons name="person" size={16} color="#6366F1" />
+                </View>
+                <View style={styles.fieldBody}>
+                  <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>Full Name</Text>
+                  <TextInput
+                    style={[styles.fieldInput, { color: colors.foreground }]}
+                    value={editName}
+                    onChangeText={setEditName}
+                    placeholder="Your name"
+                    placeholderTextColor={colors.mutedForeground}
+                    autoCapitalize="words"
+                    returnKeyType="next"
+                  />
+                </View>
               </View>
-              <Text style={[styles.xpLabel, { color: colors.mutedForeground }]}>
-                {xpInfo.current}/{xpInfo.needed} XP to next level
-              </Text>
+              <View style={[styles.fieldDivider, { backgroundColor: colors.border }]} />
+              <View style={styles.fieldRow}>
+                <View style={[styles.fieldIcon, { backgroundColor: "#10B98122" }]}>
+                  <Ionicons name="calendar" size={16} color="#10B981" />
+                </View>
+                <View style={styles.fieldBody}>
+                  <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>Age</Text>
+                  <TextInput
+                    style={[styles.fieldInput, { color: colors.foreground }]}
+                    value={editAge}
+                    onChangeText={setEditAge}
+                    placeholder="Optional"
+                    placeholderTextColor={colors.mutedForeground}
+                    keyboardType="number-pad"
+                    returnKeyType="done"
+                    maxLength={3}
+                  />
+                </View>
+              </View>
             </View>
-          </View>
 
-          <View style={styles.statsGrid}>
-            {[
-              { label: "Tasks Done", value: completedTasks.length, icon: "checkmark-circle", color: colors.success },
-              { label: "Focus Hours", value: `${totalFocusHours}h`, icon: "time", color: colors.primary },
-              { label: "Best Streak", value: `${profile.longestStreak}d`, icon: "flame", color: "#F97316" },
-              { label: "Achievements", value: unlockedAchievements, icon: "trophy", color: "#F59E0B" },
-              { label: "RAI Score", value: profile.raiScore, icon: "star", color: colors.accent },
-              { label: "Sessions", value: focusSessions.length, icon: "timer", color: colors.teal },
-            ].map((s) => (
-              <View key={s.label} style={[styles.statCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                <Ionicons name={s.icon as keyof typeof Ionicons.glyphMap} size={20} color={s.color} />
-                <Text style={[styles.statValue, { color: colors.foreground }]}>{s.value}</Text>
-                <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>{s.label}</Text>
+            <TouchableOpacity onPress={saveEdit} style={[styles.saveBtn, { backgroundColor: colors.primary }]}>
+              <Text style={styles.saveBtnText}>Save Changes</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* ── Stats ── */}
+        {!editing && (
+          <View style={styles.content}>
+            <View style={[styles.levelCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <ProgressRing size={80} strokeWidth={7} progress={xpInfo.progress} gradient trackColor={colors.border}>
+                <Text style={[styles.levelNum, { color: colors.primary }]}>{profile.level}</Text>
+              </ProgressRing>
+              <View style={styles.levelInfo}>
+                <Text style={[styles.levelTitle, { color: colors.foreground }]}>Level {profile.level} · {levelTitle}</Text>
+                <Text style={[styles.levelXP, { color: colors.mutedForeground }]}>{profile.xp} total XP</Text>
+                <View style={[styles.xpBar, { backgroundColor: colors.border }]}>
+                  <View style={[styles.xpFill, { width: `${xpInfo.progress * 100}%`, backgroundColor: colors.primary }]} />
+                </View>
+                <Text style={[styles.xpLabel, { color: colors.mutedForeground }]}>
+                  {xpInfo.current}/{xpInfo.needed} XP to next level
+                </Text>
               </View>
-            ))}
-          </View>
+            </View>
 
-          {Object.keys(categoryBreakdown).length > 0 && (
-            <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <Text style={[styles.cardTitle, { color: colors.foreground }]}>Category Breakdown</Text>
-              {Object.entries(categoryBreakdown).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([cat, count]) => (
-                <View key={cat} style={styles.catRow}>
-                  <View style={[styles.catDot, { backgroundColor: getCategoryColor(cat, true) }]} />
-                  <Text style={[styles.catName, { color: colors.foreground }]}>{cat}</Text>
-                  <Text style={[styles.catCount, { color: colors.mutedForeground }]}>{count} tasks</Text>
+            <View style={styles.statsGrid}>
+              {[
+                { label: "Tasks Done", value: completedTasks.length, icon: "checkmark-circle", color: colors.success },
+                { label: "Focus Hours", value: `${totalFocusHours}h`, icon: "time", color: colors.primary },
+                { label: "Best Streak", value: `${profile.longestStreak}d`, icon: "flame", color: "#F97316" },
+                { label: "Achievements", value: unlockedAchievements, icon: "trophy", color: "#F59E0B" },
+                { label: "RAI Score", value: profile.raiScore, icon: "star", color: colors.accent },
+                { label: "Sessions", value: focusSessions.length, icon: "timer", color: colors.teal },
+              ].map((s) => (
+                <View key={s.label} style={[styles.statCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                  <Ionicons name={s.icon as keyof typeof Ionicons.glyphMap} size={20} color={s.color} />
+                  <Text style={[styles.statValue, { color: colors.foreground }]}>{s.value}</Text>
+                  <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>{s.label}</Text>
                 </View>
               ))}
             </View>
-          )}
 
-          <View style={styles.quickLinks}>
-            {[
-              { label: "Achievements", icon: "trophy", onPress: () => router.push("/achievements") },
-              { label: "Goals", icon: "flag", onPress: () => router.push("/goals") },
-              { label: "Confidence Builder", icon: "sparkles", onPress: () => router.push("/confidence") },
-              { label: "Diary", icon: "journal", onPress: () => router.push("/diary") },
-              { label: "Settings", icon: "settings", onPress: () => router.push("/settings") },
-            ].map((link) => (
-              <TouchableOpacity
-                key={link.label}
-                onPress={link.onPress}
-                style={[styles.quickLink, { backgroundColor: colors.card, borderColor: colors.border }]}
-              >
-                <Ionicons name={link.icon as keyof typeof Ionicons.glyphMap} size={18} color={colors.primary} />
-                <Text style={[styles.quickLinkText, { color: colors.foreground }]}>{link.label}</Text>
-                <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
-              </TouchableOpacity>
-            ))}
+            {Object.keys(categoryBreakdown).length > 0 && (
+              <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Text style={[styles.cardTitle, { color: colors.foreground }]}>Category Breakdown</Text>
+                {Object.entries(categoryBreakdown).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([cat, count]) => (
+                  <View key={cat} style={styles.catRow}>
+                    <View style={[styles.catDot, { backgroundColor: getCategoryColor(cat, true) }]} />
+                    <Text style={[styles.catName, { color: colors.foreground }]}>{cat}</Text>
+                    <Text style={[styles.catCount, { color: colors.mutedForeground }]}>{count} tasks</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            <View style={styles.quickLinks}>
+              {[
+                { label: "Achievements", icon: "trophy", onPress: () => router.push("/achievements") },
+                { label: "Goals", icon: "flag", onPress: () => router.push("/goals") },
+                { label: "Confidence Builder", icon: "sparkles", onPress: () => router.push("/confidence") },
+                { label: "Diary", icon: "journal", onPress: () => router.push("/diary") },
+                { label: "Settings", icon: "settings", onPress: () => router.push("/settings") },
+              ].map((link) => (
+                <TouchableOpacity
+                  key={link.label}
+                  onPress={link.onPress}
+                  style={[styles.quickLink, { backgroundColor: colors.card, borderColor: colors.border }]}
+                >
+                  <Ionicons name={link.icon as keyof typeof Ionicons.glyphMap} size={18} color={colors.primary} />
+                  <Text style={[styles.quickLinkText, { color: colors.foreground }]}>{link.label}</Text>
+                  <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
-        </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -129,13 +274,31 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1 },
   headerTitle: { fontSize: 18, fontFamily: "Inter_700Bold" },
+  saveText: { fontSize: 16, fontFamily: "Inter_600SemiBold" },
   heroSection: { alignItems: "center", paddingVertical: 32, gap: 8, borderBottomWidth: 1 },
   avatarLarge: { width: 88, height: 88, borderRadius: 44, alignItems: "center", justifyContent: "center" },
   avatarLargeText: { fontSize: 36, fontFamily: "Inter_700Bold", color: "#FFF" },
   userName: { fontSize: 24, fontFamily: "Inter_700Bold" },
+  userAge: { fontSize: 14, fontFamily: "Inter_400Regular" },
   userTier: { fontSize: 15, fontFamily: "Inter_500Medium" },
   streakRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   streakText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+
+  colorPicker: { alignItems: "center", gap: 10, marginTop: 4 },
+  colorPickerLabel: { fontSize: 12, fontFamily: "Inter_500Medium" },
+  colorDotRow: { flexDirection: "row", gap: 12 },
+  colorDot: { width: 32, height: 32, borderRadius: 16 },
+
+  fieldGroup: { borderRadius: 16, borderWidth: 1, overflow: "hidden" },
+  fieldRow: { flexDirection: "row", alignItems: "center", padding: 14, gap: 12 },
+  fieldDivider: { height: 1 },
+  fieldIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  fieldBody: { flex: 1, gap: 2 },
+  fieldLabel: { fontSize: 11, fontFamily: "Inter_500Medium", textTransform: "uppercase", letterSpacing: 0.8 },
+  fieldInput: { fontSize: 16, fontFamily: "Inter_500Medium", paddingVertical: 0 },
+  saveBtn: { borderRadius: 14, paddingVertical: 16, alignItems: "center" },
+  saveBtnText: { fontSize: 15, fontFamily: "Inter_700Bold", color: "#FFF" },
+
   content: { padding: 16, gap: 14 },
   levelCard: { flexDirection: "row", gap: 16, borderRadius: 16, borderWidth: 1, padding: 16, alignItems: "center" },
   levelNum: { fontSize: 22, fontFamily: "Inter_700Bold" },

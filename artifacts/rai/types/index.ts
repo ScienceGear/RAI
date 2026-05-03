@@ -96,6 +96,8 @@ export interface UserProfile {
   firstName: string;
   email: string;
   avatarUrl?: string;
+  avatarColor?: string;
+  age?: number;
   primaryFocus: PrimaryFocus;
   goalType?: string;
   mainStruggle: string[];

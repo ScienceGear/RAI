@@ -105,6 +105,8 @@ const defaultProfile: UserProfile = {
   morningBriefingEnabled: true,
   morningBriefingHour: 8,
   dangerZoneAlertsEnabled: true,
+  avatarColor: "#6366F1",
+  age: undefined,
   aiMemory: [],
   notificationsGranted: false,
   usageStatsGranted: false,

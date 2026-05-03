@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch,
-  Alert, Platform, Linking, Share, TextInput, ActivityIndicator,
+  Alert, Platform, Linking,
 } from "react-native";
 import { SwipeableSheet } from "@/components/SwipeableSheet";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -27,7 +27,31 @@ const THEMES: { value: Theme; label: string; icon: string }[] = [
 
 const FOCUS_PRESETS = [15, 20, 25, 30, 45, 60, 90];
 
-// ── Shared sub-components ───────────────────────────────────────────────────
+// ── Debounce hook ────────────────────────────────────────────────────────────
+function useDebounced<T extends (...args: any[]) => any>(fn: T, delay = 400) {
+  const timer = useRef<ReturnType<typeof setTimeout>>();
+  const fnRef = useRef(fn);
+  fnRef.current = fn;
+  return (...args: Parameters<T>) => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => fnRef.current(...args), delay);
+  };
+}
+
+function useThrottled<T extends (...args: any[]) => any>(fn: T, interval = 300) {
+  const last = useRef(0);
+  const fnRef = useRef(fn);
+  fnRef.current = fn;
+  return (...args: Parameters<T>) => {
+    const now = Date.now();
+    if (now - last.current >= interval) {
+      last.current = now;
+      fnRef.current(...args);
+    }
+  };
+}
+
+// ── Shared sub-components ────────────────────────────────────────────────────
 
 function SettingRow({ icon, iconColor, label, onPress, right, isDanger = false, subtitle, last = false }: {
   icon: string; iconColor?: string; label: string; onPress?: () => void;
@@ -78,8 +102,8 @@ function ValueBadge({ value, color = "#6366F1" }: { value: string; color?: strin
   );
 }
 
-function Stepper({ value, label, onDecrement, onIncrement }: {
-  value: string; label?: string; onDecrement: () => void; onIncrement: () => void;
+function Stepper({ value, onDecrement, onIncrement }: {
+  value: string; onDecrement: () => void; onIncrement: () => void;
 }) {
   const colors = useColors();
   return (
@@ -87,7 +111,7 @@ function Stepper({ value, label, onDecrement, onIncrement }: {
       <TouchableOpacity onPress={onDecrement} style={[styles.stepperBtn, { borderColor: colors.border, backgroundColor: colors.secondary }]}>
         <Ionicons name="remove" size={14} color={colors.foreground} />
       </TouchableOpacity>
-      <Text style={[styles.stepperVal, { color: colors.foreground }]}>{label ?? value}</Text>
+      <Text style={[styles.stepperVal, { color: colors.foreground }]}>{value}</Text>
       <TouchableOpacity onPress={onIncrement} style={[styles.stepperBtn, { borderColor: colors.border, backgroundColor: colors.secondary }]}>
         <Ionicons name="add" size={14} color={colors.foreground} />
       </TouchableOpacity>
@@ -95,7 +119,7 @@ function Stepper({ value, label, onDecrement, onIncrement }: {
   );
 }
 
-// ── Focus Duration Modal ────────────────────────────────────────────────────
+// ── Focus Duration Modal ─────────────────────────────────────────────────────
 function FocusDurationModal({ visible, current, onSelect, onClose }: {
   visible: boolean; current: number; onSelect: (m: number) => void; onClose: () => void;
 }) {
@@ -128,9 +152,86 @@ function FocusDurationModal({ visible, current, onSelect, onClose }: {
   );
 }
 
-// ── Sleep Schedule Modal ────────────────────────────────────────────────────
-function SleepModal({ visible, wakeUp, bedtime, onSave, onClose }: {
-  visible: boolean; wakeUp: string; bedtime: string;
+// ── Time Spinner ─────────────────────────────────────────────────────────────
+function TimeSpinner({
+  label, iconName, iconColor, value, onChange, use12Hour,
+}: {
+  label: string; iconName: string; iconColor: string;
+  value: string; onChange: (v: string) => void; use12Hour: boolean;
+}) {
+  const colors = useColors();
+
+  const parseTime = (t: string) => {
+    const [hStr, mStr] = t.split(":");
+    const h = parseInt(hStr ?? "0", 10) || 0;
+    const m = parseInt(mStr ?? "0", 10) || 0;
+    return { h: Math.max(0, Math.min(23, h)), m: Math.max(0, Math.min(59, m)) };
+  };
+
+  const { h, m } = parseTime(value);
+
+  const emit = (newH: number, newM: number) => {
+    const hh = (((newH % 24) + 24) % 24);
+    const mm = (((newM % 60) + 60) % 60);
+    onChange(`${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`);
+    Haptics.selectionAsync();
+  };
+
+  const displayH = use12Hour ? (h % 12 === 0 ? 12 : h % 12) : h;
+  const ampm = h < 12 ? "AM" : "PM";
+
+  return (
+    <View style={styles.timeSpinner}>
+      <View style={[styles.timeSpinnerIcon, { backgroundColor: iconColor + "22" }]}>
+        <Ionicons name={iconName as keyof typeof Ionicons.glyphMap} size={18} color={iconColor} />
+      </View>
+      <Text style={[styles.timeSpinnerLabel, { color: colors.mutedForeground }]}>{label}</Text>
+
+      <View style={styles.timeSpinnerRow}>
+        {/* Hours */}
+        <View style={styles.timeUnit}>
+          <TouchableOpacity onPress={() => emit(h + 1, m)} style={styles.timeArrow} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="chevron-up" size={20} color={colors.primary} />
+          </TouchableOpacity>
+          <View style={[styles.timeValueBox, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
+            <Text style={[styles.timeValue, { color: colors.foreground }]}>{String(displayH).padStart(2, "0")}</Text>
+          </View>
+          <TouchableOpacity onPress={() => emit(h - 1, m)} style={styles.timeArrow} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="chevron-down" size={20} color={colors.primary} />
+          </TouchableOpacity>
+        </View>
+
+        <Text style={[styles.timeColon, { color: colors.foreground }]}>:</Text>
+
+        {/* Minutes */}
+        <View style={styles.timeUnit}>
+          <TouchableOpacity onPress={() => emit(h, m + 5)} style={styles.timeArrow} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="chevron-up" size={20} color={colors.primary} />
+          </TouchableOpacity>
+          <View style={[styles.timeValueBox, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
+            <Text style={[styles.timeValue, { color: colors.foreground }]}>{String(m).padStart(2, "0")}</Text>
+          </View>
+          <TouchableOpacity onPress={() => emit(h, m - 5)} style={styles.timeArrow} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="chevron-down" size={20} color={colors.primary} />
+          </TouchableOpacity>
+        </View>
+
+        {use12Hour && (
+          <TouchableOpacity
+            onPress={() => emit(h < 12 ? h + 12 : h - 12, m)}
+            style={[styles.ampmBtn, { backgroundColor: colors.secondary, borderColor: colors.border }]}
+          >
+            <Text style={[styles.ampmText, { color: colors.primary }]}>{ampm}</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    </View>
+  );
+}
+
+// ── Sleep Schedule Modal ─────────────────────────────────────────────────────
+function SleepModal({ visible, wakeUp, bedtime, use12Hour, onSave, onClose }: {
+  visible: boolean; wakeUp: string; bedtime: string; use12Hour: boolean;
   onSave: (wakeUp: string, bedtime: string) => void; onClose: () => void;
 }) {
   const colors = useColors();
@@ -141,13 +242,7 @@ function SleepModal({ visible, wakeUp, bedtime, onSave, onClose }: {
     if (visible) { setWake(wakeUp); setBed(bedtime); }
   }, [visible, wakeUp, bedtime]);
 
-  const valid = (t: string) => /^\d{2}:\d{2}$/.test(t);
-
   const handleSave = () => {
-    if (!valid(wake) || !valid(bed)) {
-      Alert.alert("Invalid Format", "Please use HH:MM format (e.g. 07:00, 23:30).");
-      return;
-    }
     onSave(wake, bed);
     onClose();
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -161,38 +256,16 @@ function SleepModal({ visible, wakeUp, bedtime, onSave, onClose }: {
           RAI avoids scheduling tasks during sleep and protects your wind-down time before bed.
         </Text>
 
-        <View style={styles.sleepRow}>
-          <View style={styles.sleepField}>
-            <View style={[styles.sleepIcon, { backgroundColor: "#F59E0B22" }]}>
-              <Ionicons name="sunny" size={20} color="#F59E0B" />
-            </View>
-            <Text style={[styles.sleepFieldLabel, { color: colors.mutedForeground }]}>Wake up</Text>
-            <TextInput
-              style={[styles.sleepInput, { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.secondary }]}
-              value={wake}
-              onChangeText={setWake}
-              keyboardType="numbers-and-punctuation"
-              placeholder="07:00"
-              placeholderTextColor={colors.mutedForeground}
-              maxLength={5}
-            />
-          </View>
-          <Ionicons name="arrow-forward" size={18} color={colors.mutedForeground} style={{ marginTop: 32 }} />
-          <View style={styles.sleepField}>
-            <View style={[styles.sleepIcon, { backgroundColor: "#8B5CF622" }]}>
-              <Ionicons name="moon" size={20} color="#8B5CF6" />
-            </View>
-            <Text style={[styles.sleepFieldLabel, { color: colors.mutedForeground }]}>Bedtime</Text>
-            <TextInput
-              style={[styles.sleepInput, { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.secondary }]}
-              value={bed}
-              onChangeText={setBed}
-              keyboardType="numbers-and-punctuation"
-              placeholder="23:00"
-              placeholderTextColor={colors.mutedForeground}
-              maxLength={5}
-            />
-          </View>
+        <View style={styles.timeSpinnersRow}>
+          <TimeSpinner
+            label="Wake up" iconName="sunny" iconColor="#F59E0B"
+            value={wake} onChange={setWake} use12Hour={use12Hour}
+          />
+          <View style={[styles.timeSpinnerDivider, { backgroundColor: colors.border }]} />
+          <TimeSpinner
+            label="Bedtime" iconName="moon" iconColor="#8B5CF6"
+            value={bed} onChange={setBed} use12Hour={use12Hour}
+          />
         </View>
 
         <TouchableOpacity onPress={handleSave} style={[styles.saveBtn, { backgroundColor: colors.primary }]}>
@@ -203,25 +276,24 @@ function SleepModal({ visible, wakeUp, bedtime, onSave, onClose }: {
   );
 }
 
-// ── Main Settings Screen ────────────────────────────────────────────────────
+// ── Main Settings Screen ─────────────────────────────────────────────────────
 export default function SettingsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const {
     profile, updateProfile, resetOnboarding, dangerZone, firebaseUserId,
-    tasks, goals, diary, moodLogs, focusSessions, achievements,
+    tasks,
   } = useApp();
 
   const [notifStatus, setNotifStatus] = useState<"granted" | "denied" | "undetermined">("undetermined");
   const [showFocusModal, setShowFocusModal] = useState(false);
   const [showSleepModal, setShowSleepModal] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
 
   useEffect(() => { getNotificationPermissionStatus().then(setNotifStatus); }, []);
 
-  // ── Derived values ────────────────────────────────────────────────────────
+  // ── Derived values ──────────────────────────────────────────────────────────
   const notifOn = notifStatus === "granted" && !!profile.notificationsGranted;
   const focusMins = profile.defaultFocusDuration ?? 25;
   const briefingHour = profile.morningBriefingHour ?? 8;
@@ -230,9 +302,8 @@ export default function SettingsScreen() {
   const dangerLast = (dangerZone.dangerHours[dangerZone.dangerHours.length - 1] ?? 15) + 1;
   const capacityHours = Math.round((profile.dailyCapacityMinutes ?? 480) / 60);
 
-  // ── Notification handlers ─────────────────────────────────────────────────
-  const handleEnableNotifications = async () => {
-    await Haptics.selectionAsync();
+  // ── Debounced/throttled handlers ────────────────────────────────────────────
+  const handleEnableNotifications = useDebounced(async () => {
     if (notifStatus === "denied") {
       Alert.alert(
         "Notifications Blocked",
@@ -249,91 +320,52 @@ export default function SettingsScreen() {
       setNotifStatus("granted");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }
-  };
+  }, 600);
 
-  const toggleMorningBriefing = async (on: boolean) => {
+  const toggleMorningBriefing = useDebounced(async (on: boolean) => {
     if (!notifOn) { handleEnableNotifications(); return; }
     await Haptics.selectionAsync();
     await updateProfile({ morningBriefingEnabled: on });
     if (on) await scheduleDailyBriefing(briefingHour, 0);
     else await cancelAllNotificationsOfType("daily_briefing");
-  };
+  }, 500);
 
-  const toggleDangerZoneAlerts = async (on: boolean) => {
+  const toggleDangerZoneAlerts = useDebounced(async (on: boolean) => {
     if (!notifOn) { handleEnableNotifications(); return; }
     await Haptics.selectionAsync();
     await updateProfile({ dangerZoneAlertsEnabled: on });
     if (on) { if (dangerFirst) await scheduleDangerZoneAlert(dangerFirst); }
     else { for (const h of dangerZone.dangerHours) await cancelAllNotificationsOfType(`danger_zone_${h}`); }
-  };
+  }, 500);
 
-  const adjustBriefingHour = async (delta: number) => {
+  const adjustBriefingHour = useThrottled(async (delta: number) => {
     if (!notifOn || !profile.morningBriefingEnabled) return;
     const newHour = Math.max(5, Math.min(11, briefingHour + delta));
     await updateProfile({ morningBriefingHour: newHour });
     await scheduleDailyBriefing(newHour, 0);
     Haptics.selectionAsync();
-  };
+  }, 250);
 
-  // ── Export ────────────────────────────────────────────────────────────────
-  const handleExport = async () => {
-    setIsExporting(true);
-    try {
-      const payload = {
-        exportedAt: new Date().toISOString(),
-        appVersion: "2.0",
-        profile: {
-          name: profile.name, email: profile.email,
-          streak: profile.streak, xp: profile.xp,
-          level: profile.level, raiScore: profile.raiScore,
-          chronotype: profile.chronotype, primaryFocus: profile.primaryFocus,
-        },
-        stats: {
-          tasksCompleted: tasks.filter((t) => t.completed).length,
-          totalTasks: tasks.length,
-          totalFocusMinutes: focusSessions.reduce((s, f) => s + (f.completedMinutes ?? 0), 0),
-          diaryEntries: diary.length,
-          goalsCount: goals.length,
-        },
-        tasks: tasks.map((t) => ({
-          title: t.title, priority: t.priority, categoryPrimary: t.categoryPrimary,
-          scheduledDate: t.scheduledDate, scheduledTime: t.scheduledTime,
-          estimatedMinutes: t.estimatedMinutes, completed: t.completed,
-        })),
-        goals: goals.map((g) => ({ title: g.title, targetDate: g.targetDate, progress: g.progress })),
-        diary: diary.map((d) => ({ date: d.date, content: d.content, mood: d.mood })),
-        moodLogs: moodLogs.map((m) => ({ date: m.date, mood: m.mood, tags: m.tags })),
-        focusSessions: focusSessions.map((f) => ({
-          startTime: f.startTime, durationMinutes: f.durationMinutes, completedMinutes: f.completedMinutes,
-        })),
-        achievements: achievements.filter((a) => a.unlockedAt).map((a) => ({
-          id: a.id, title: a.title, unlockedAt: a.unlockedAt,
-        })),
-      };
-      const json = JSON.stringify(payload, null, 2);
-      await Share.share({ message: json, title: "RAI Data Export" });
-    } catch {
-      Alert.alert("Export Failed", "Could not export data. Please try again.");
-    } finally {
-      setIsExporting(false);
-    }
-  };
+  const adjustCapacity = useThrottled((delta: number) => {
+    updateProfile({ dailyCapacityMinutes: Math.max(60, Math.min(960, (profile.dailyCapacityMinutes ?? 480) + delta)) });
+    Haptics.selectionAsync();
+  }, 200);
 
-  // ── Danger zone actions ───────────────────────────────────────────────────
-  const handleResetOnboarding = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+  const handleResetOnboarding = useDebounced(() => {
     Alert.alert(
       "Reset Onboarding",
-      "This restarts the setup flow and resets your profile preferences. Your tasks and goals are kept.",
-      [{ text: "Cancel", style: "cancel" }, { text: "Reset", style: "destructive", onPress: resetOnboarding }]
+      "This will restart the setup flow. Your tasks and goals will be kept.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Reset", style: "destructive", onPress: async () => { await resetOnboarding(); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); } },
+      ]
     );
-  };
+  }, 600);
 
-  const handleDeleteAll = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+  const handleDeleteAll = useDebounced(() => {
     Alert.alert(
       "Delete All Data",
-      "This permanently deletes ALL tasks, goals, diary, progress, and profile data. This cannot be undone.",
+      "This permanently removes all your tasks, goals, diary entries, and profile data. This cannot be undone.",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -342,7 +374,13 @@ export default function SettingsScreen() {
         },
       ]
     );
-  };
+  }, 600);
+
+  const openWebsite = useDebounced(() => {
+    Linking.openURL("https://rai.sciencegear.tech").catch(() =>
+      Alert.alert("Could not open", "Visit rai.sciencegear.tech in your browser.")
+    );
+  }, 600);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -398,40 +436,40 @@ export default function SettingsScreen() {
               right={<StatusBadge status={notifOn ? "on" : notifStatus === "undetermined" ? "partial" : "off"} />}
             />
             <SettingRow
-              icon="warning" iconColor="#EF4444" label="Danger Zone Alerts"
-              subtitle={notifOn && profile.dangerZoneAlertsEnabled
-                ? `Alerts at ${dangerFirst}:00 before your distraction window`
-                : notifOn ? "Off — tap switch to enable" : "Enable push notifications first"}
+              icon="warning" iconColor="#F97316" label="Danger Zone Alerts"
+              subtitle="Get warned when your high-risk hours begin"
               right={
-                <Switch
-                  value={notifOn && !!profile.dangerZoneAlertsEnabled}
+                <Switch value={!!profile.dangerZoneAlertsEnabled}
                   onValueChange={toggleDangerZoneAlerts}
-                  trackColor={{ false: colors.border, true: "#EF4444" }} thumbColor="#FFF"
+                  trackColor={{ false: colors.border, true: "#F97316" }} thumbColor="#FFF"
                 />
               }
             />
             <SettingRow
               icon="sunny" iconColor="#F59E0B" label="Morning Briefing"
-              subtitle={notifOn && profile.morningBriefingEnabled
-                ? `Daily at ${briefingLabel} — tap ±  to adjust`
-                : notifOn ? "Off — tap switch to enable" : "Enable push notifications first"}
+              subtitle={profile.morningBriefingEnabled ? `Daily at ${briefingLabel}` : "Off"}
               right={
-                notifOn && profile.morningBriefingEnabled ? (
+                <Switch value={!!profile.morningBriefingEnabled}
+                  onValueChange={toggleMorningBriefing}
+                  trackColor={{ false: colors.border, true: colors.primary }} thumbColor="#FFF"
+                />
+              }
+            />
+            {profile.morningBriefingEnabled && notifOn && (
+              <SettingRow
+                icon="alarm" iconColor="#6366F1" label="Briefing Time"
+                subtitle="When RAI wakes you up with your plan"
+                right={
                   <Stepper
                     value={briefingLabel}
                     onDecrement={() => adjustBriefingHour(-1)}
                     onIncrement={() => adjustBriefingHour(1)}
                   />
-                ) : (
-                  <Switch
-                    value={notifOn && !!profile.morningBriefingEnabled}
-                    onValueChange={toggleMorningBriefing}
-                    trackColor={{ false: colors.border, true: "#F59E0B" }} thumbColor="#FFF"
-                  />
-                )
-              }
-              last
-            />
+                }
+                last
+              />
+            )}
+            {(!profile.morningBriefingEnabled || !notifOn) && <View />}
           </View>
 
           {/* ── APP BLOCKER ── */}
@@ -440,7 +478,7 @@ export default function SettingsScreen() {
             <SettingRow
               icon="shield-checkmark" iconColor="#EF4444"
               label="Manage Blocked Apps"
-              subtitle={`Block distracting apps with a commitment gate`}
+              subtitle="Block distracting apps with a commitment gate"
               onPress={() => router.push("/settings/app-blocker")}
               last
             />
@@ -469,8 +507,8 @@ export default function SettingsScreen() {
               right={
                 <Stepper
                   value={`${capacityHours}h`}
-                  onDecrement={() => { updateProfile({ dailyCapacityMinutes: Math.max(60, (profile.dailyCapacityMinutes ?? 480) - 60) }); Haptics.selectionAsync(); }}
-                  onIncrement={() => { updateProfile({ dailyCapacityMinutes: Math.min(960, (profile.dailyCapacityMinutes ?? 480) + 60) }); Haptics.selectionAsync(); }}
+                  onDecrement={() => adjustCapacity(-60)}
+                  onIncrement={() => adjustCapacity(60)}
                 />
               }
             />
@@ -497,15 +535,14 @@ export default function SettingsScreen() {
             <SettingRow
               icon="person" iconColor="#10B981"
               label="Edit Profile"
-              subtitle={`${profile.name} · Level ${profile.level} · ${profile.xp} XP`}
+              subtitle={`${profile.name}${profile.age ? ` · Age ${profile.age}` : ""} · Level ${profile.level}`}
               onPress={() => router.push("/profile")}
             />
             <SettingRow
-              icon="download" iconColor="#F59E0B"
-              label="Export My Data"
-              subtitle={`${tasks.length} tasks · ${diary.length} diary entries · ${focusSessions.length} sessions`}
-              onPress={isExporting ? undefined : handleExport}
-              right={isExporting ? <ActivityIndicator size="small" color={colors.primary} /> : undefined}
+              icon="globe" iconColor="#0EA5E9"
+              label="Visit Website"
+              subtitle="rai.sciencegear.tech"
+              onPress={openWebsite}
               last
             />
           </View>
@@ -528,9 +565,8 @@ export default function SettingsScreen() {
             />
           </View>
 
-          <Text style={[styles.version, { color: colors.mutedForeground }]}>
-            RAI v2.0  ·  {tasks.filter((t) => t.completed).length} tasks done  ·  {profile.streak} day streak
-            {"\n"}{isFirebaseConfigured ? "☁️  Firebase synced" : "💾  Local storage only"}
+          <Text style={[styles.copyright, { color: colors.mutedForeground }]}>
+            Made by ScienceGear © 2026
           </Text>
         </View>
       </ScrollView>
@@ -545,6 +581,7 @@ export default function SettingsScreen() {
         visible={showSleepModal}
         wakeUp={profile.sleepEnd ?? "07:00"}
         bedtime={profile.sleepStart ?? "23:00"}
+        use12Hour={!profile.use24Hour}
         onSave={(w, b) => updateProfile({ sleepEnd: w, sleepStart: b })}
         onClose={() => setShowSleepModal(false)}
       />
@@ -593,14 +630,23 @@ const styles = StyleSheet.create({
   focusChipNum: { fontSize: 20, fontFamily: "Inter_700Bold" },
   focusChipUnit: { fontSize: 11, fontFamily: "Inter_500Medium" },
 
-  sleepRow: { flexDirection: "row", alignItems: "flex-end", gap: 12, marginBottom: 24 },
-  sleepField: { flex: 1, alignItems: "center", gap: 6 },
-  sleepIcon: { width: 44, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center" },
-  sleepFieldLabel: { fontSize: 12, fontFamily: "Inter_500Medium" },
-  sleepInput: { width: "100%", borderRadius: 12, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12, fontSize: 18, fontFamily: "Inter_700Bold", textAlign: "center" },
+  // Time spinner
+  timeSpinnersRow: { flexDirection: "row", marginBottom: 24 },
+  timeSpinnerDivider: { width: 1, marginHorizontal: 8 },
+  timeSpinner: { flex: 1, alignItems: "center", gap: 10 },
+  timeSpinnerIcon: { width: 44, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  timeSpinnerLabel: { fontSize: 12, fontFamily: "Inter_500Medium" },
+  timeSpinnerRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  timeUnit: { alignItems: "center", gap: 4 },
+  timeArrow: { padding: 4 },
+  timeValueBox: { borderRadius: 10, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 6, minWidth: 52, alignItems: "center" },
+  timeValue: { fontSize: 28, fontFamily: "Inter_700Bold" },
+  timeColon: { fontSize: 28, fontFamily: "Inter_700Bold", marginBottom: 2 },
+  ampmBtn: { borderRadius: 8, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 6, marginLeft: 4 },
+  ampmText: { fontSize: 13, fontFamily: "Inter_700Bold" },
 
   saveBtn: { borderRadius: 14, paddingVertical: 16, alignItems: "center" },
   saveBtnText: { fontSize: 15, fontFamily: "Inter_700Bold", color: "#FFF" },
 
-  version: { fontSize: 12, fontFamily: "Inter_400Regular", textAlign: "center", marginTop: 20, lineHeight: 19 },
+  copyright: { fontSize: 12, fontFamily: "Inter_400Regular", textAlign: "center", marginTop: 20, lineHeight: 19 },
 });
