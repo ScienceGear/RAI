@@ -197,33 +197,6 @@ export default function SettingsScreen() {
             <SettingRow icon="download" iconColor="#F59E0B" label="Export Data" onPress={() => Alert.alert("Coming soon", "Data export will be available in a future update.")} />
           </View>
 
-          <SectionHeader title="HOW TO CONNECT FIREBASE" />
-          <View style={[styles.firebaseGuide, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={[styles.guideTitle, { color: colors.foreground }]}>Add your Firebase credentials</Text>
-            <Text style={[styles.guideText, { color: colors.mutedForeground }]}>
-              1. Go to Firebase Console → Project Settings → General
-              {"\n"}2. Under "Your apps" → Web app → SDK config
-              {"\n"}3. Open Replit Secrets (🔒 icon in the sidebar)
-              {"\n"}4. Add these 6 keys:
-            </Text>
-            {[
-              "EXPO_PUBLIC_FIREBASE_API_KEY",
-              "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN",
-              "EXPO_PUBLIC_FIREBASE_PROJECT_ID",
-              "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET",
-              "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID",
-              "EXPO_PUBLIC_FIREBASE_APP_ID",
-            ].map((k) => (
-              <View key={k} style={[styles.guideKey, { backgroundColor: colors.secondary }]}>
-                <Ionicons name="key-outline" size={12} color={colors.primary} />
-                <Text style={[styles.guideKeyText, { color: colors.primary }]}>{k}</Text>
-              </View>
-            ))}
-            <Text style={[styles.guideText, { color: colors.mutedForeground }]}>
-              5. Restart the app — data will sync automatically across devices.
-            </Text>
-          </View>
-
           <SectionHeader title="DANGER ZONE" />
           <View style={[styles.settingGroup, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <SettingRow icon="refresh" label="Reset Onboarding" onPress={handleReset} isDanger />
@@ -256,10 +229,5 @@ const styles = StyleSheet.create({
   statusBadge: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
   statusDot: { width: 7, height: 7, borderRadius: 4 },
   statusText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
-  firebaseGuide: { borderRadius: 14, borderWidth: 1, padding: 16, gap: 10 },
-  guideTitle: { fontSize: 14, fontFamily: "Inter_700Bold" },
-  guideText: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 22 },
-  guideKey: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
-  guideKeyText: { fontSize: 11, fontFamily: "Inter_500Medium" },
   version: { fontSize: 12, fontFamily: "Inter_400Regular", textAlign: "center", marginTop: 16 },
 });
