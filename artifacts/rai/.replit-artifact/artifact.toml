@@ -1,0 +1,27 @@
+kind = "mobile"
+previewPath = "/"
+title = "RAI — AI Productivity Coach"
+version = "1.0.0"
+id = "artifacts/rai"
+router = "expo-domain"
+
+[[integratedSkills]]
+name = "expo"
+version = "1.0.0"
+
+[[services]]
+ensurePreviewReachable = "/status"
+name = "expo"
+paths = [ "/" ]
+localPort = 23159
+
+[services.development]
+run = "pnpm --filter @workspace/rai run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/rai", "run", "build" ]
+run = [ "pnpm", "--filter", "@workspace/rai", "run", "serve" ]
+
+[services.env]
+PORT = "23159"
+BASE_PATH = "/"

@@ -1,0 +1,1827 @@
+# RAI v2 — Master Product Requirements Document
+### Reasoning Artificial Intelligence · Expo (React Native) · Cross-Platform Android-First
+> **Document Status:** Ready for Development  
+> **Version:** 2.0  
+> **Last Updated:** 2026-05-03  
+> **Owner:** RAI Product Team  
+> **Primary AI:** Claude Sonnet 4 (claude-sonnet-4-20250514)
+
+---
+
+## TABLE OF CONTENTS
+1. [Executive Summary](#1-executive-summary)
+2. [Core Philosophy & Priority Hierarchy](#2-core-philosophy--priority-hierarchy)
+3. [Tech Stack & Architecture](#3-tech-stack--architecture)
+4. [Target Users](#4-target-users)
+5. [Scope](#5-scope)
+6. [Priority #1 — Auto-Scheduler Engine](#6-priority-1--auto-scheduler-engine)
+7. [Priority #2 — Danger Zone & Push Notification System](#7-priority-2--danger-zone--push-notification-system)
+8. [Priority #3 — Screen Time Tracking (Native Module)](#8-priority-3--screen-time-tracking-native-module)
+9. [Screen-by-Screen Specifications](#9-screen-by-screen-specifications)
+10. [Task Auto-Categorization Algorithm](#10-task-auto-categorization-algorithm)
+11. [Widget Specification](#11-widget-specification)
+12. [Gamification System](#12-gamification-system)
+13. [Squad & Social System](#13-squad--social-system)
+14. [Voice & NLP System](#14-voice--nlp-system)
+15. [Data Model](#15-data-model)
+16. [Non-Functional Requirements](#16-non-functional-requirements)
+17. [User Flows](#17-user-flows)
+18. [Success Metrics](#18-success-metrics)
+19. [Release Criteria](#19-release-criteria)
+20. [Improvements & Roadmap](#20-improvements--roadmap)
+
+---
+
+## 1. EXECUTIVE SUMMARY
+
+RAI (Reasoning Artificial Intelligence) is a universal productivity companion for anyone who struggles with self-discipline — students, freelancers, professionals, entrepreneurs, and anyone managing complex personal goals. It solves the "watcher dependency" problem by becoming an ever-present AI coach that plans, monitors, blocks, motivates, and adapts to the user's emotional and cognitive state in real time.
+
+**What makes RAI different from every other productivity app:**
+- It does not just list your tasks — it automatically schedules them into your day based on your energy, habits, and deadlines.
+- It learns when you are most likely to get distracted (your personal danger zone) and sends a smart push notification *before* you open Instagram, not after.
+- It categorizes your tasks intelligently — whether you're studying Physics, building a startup, going to the gym, or writing a novel.
+- It works for anyone, not just students.
+
+**Tagline:** *"Your AI coach that never lets you quit."*
+
+---
+
+## 2. CORE PHILOSOPHY & PRIORITY HIERARCHY
+
+> **The scheduler is the product. Everything else is the wrapper.**
+
+Every design decision, every feature prioritization, and every engineering tradeoff must be evaluated through this lens: *does it make the scheduler smarter or the scheduled experience more compelling?*
+
+### Priority Hierarchy (build order)
+
+| Priority | Feature | Reason |
+|---|---|---|
+| 🔴 P1 | **Auto-Scheduler Engine** | Core value. App is useless without this. |
+| 🔴 P1 | **Push Notification System** | Danger zone alerts and task reminders are the retention engine. |
+| 🟠 P2 | **Screen Time Tracking** | Feeds the danger zone predictor. Requires native module. |
+| 🟠 P2 | **Task Auto-Categorization** | Makes the app feel intelligent to any user. |
+| 🟡 P3 | **Focus Timer + XP** | Keeps users in the app during work sessions. |
+| 🟡 P3 | **Home Screen Widget** | Passive retention. Users see RAI without opening the app. |
+| 🟢 P4 | **Mood System + Diary** | Emotional depth. Differentiates from robotic apps. |
+| 🟢 P4 | **Squad/Social** | Viral growth. Secondary retention. |
+| 🔵 P5 | **Gamification (Achievements, XP, Levels)** | Long-term retention curve. |
+
+---
+
+## 3. TECH STACK & ARCHITECTURE
+
+### 3.1 Framework
+
+```
+Expo SDK 52+ (React Native)
+├── expo-router v3 (file-based navigation)
+├── expo-notifications (push + local notifications)
+├── expo-task-manager (background tasks)
+├── expo-background-fetch (periodic data refresh)
+├── expo-av (audio playback for self-voice memos)
+├── expo-speech (TTS for onboarding and alerts)
+├── expo-haptics (haptic feedback)
+├── expo-secure-store (encrypted key storage)
+├── expo-file-system (local file ops)
+└── expo-sharing (share reports, stats cards)
+```
+
+### 3.2 Native Android Modules (Custom Expo Modules)
+
+These features require native Android code wrapped as Expo Modules:
+
+| Module Name | Native API Used | Purpose |
+|---|---|---|
+| `expo-usage-stats` | `UsageStatsManager` | Read per-app screen time data |
+| `expo-accessibility-overlay` | `AccessibilityService` | Detect + overlay blocked apps |
+| `expo-app-widget` | `AppWidgetProvider` + `Glance` | Android home screen widget |
+| `expo-package-monitor` | `PackageManager` broadcasts | Detect uninstall attempts |
+| `expo-boot-receiver` | `BootReceiver` | Restart background services on reboot |
+
+> **Dev Note:** Each native module must be built as a proper Expo Module (not a bare config plugin) so it survives Expo SDK upgrades. The module API surface must be fully documented with TypeScript types.
+
+### 3.3 State Management
+
+```
+Zustand (global state)
+├── useSchedulerStore     — tasks, scheduling queue, calendar state
+├── useUserStore          — profile, preferences, XP, streaks
+├── useScreenTimeStore    — danger zone data, app usage logs
+├── useNotificationStore  — notification preferences, history
+├── useSquadStore         — realtime squad data
+└── useMoodStore          — diary entries, mood log
+```
+
+### 3.4 Backend & Database
+
+```
+Supabase
+├── Auth (email + Google OAuth)
+├── PostgreSQL (squad data, cloud sync)
+├── Realtime (squad leaderboard live updates)
+└── Storage (avatar images, verification photos)
+
+Room (Local SQLite via expo-sqlite)
+├── Tasks, Goals, DiaryEntries
+├── ScreenTimeLogs (30-day rolling window)
+├── ProcrastinationLogs
+└── AchievementLog
+
+Encrypted via: expo-secure-store for keys + SQLCipher for Room
+```
+
+### 3.5 AI Integration
+
+```
+Anthropic Claude API (claude-sonnet-4-20250514)
+├── Task parsing from natural language / voice transcript
+├── Auto-categorization of tasks
+├── Scheduling rationale explanations
+├── Onboarding personalization
+├── Diary chat & emotional support
+├── Weekly report generation
+├── Confidence builder affirmations
+└── Danger zone insight generation
+```
+
+> **API Key Security:** Stored in Expo's `Constants.expoConfig.extra` from EAS Secrets. Never hardcoded. Requests are proxied through a lightweight Supabase Edge Function to avoid exposing the key client-side.
+
+---
+
+## 4. TARGET USERS
+
+RAI is built for **anyone with goals and a phone** — not just students.
+
+### 4.1 Persona A — "The Drifting Achiever" (Student)
+- Arjun, 18, JEE aspirant. Studies 2 hours when parents call, 4 hours of Reels otherwise.
+- **Need:** Something to watch him, plan his day, block Instagram.
+
+### 4.2 Persona B — "The Freelance Sprinter"
+- Meera, 27, freelance UX designer. Works in bursts. Misses deadlines. Overcommits.
+- **Need:** Realistic scheduling that accounts for client calls, not just study hours.
+
+### 4.3 Persona C — "The Comeback Kid"
+- Vikram, 24, UPSC dropper trying again. Shame from failure. Needs gentle re-entry.
+- **Need:** Soft start, weekly wins, confidence metrics, no guilt.
+
+### 4.4 Persona D — "The Health Optimizer"
+- Riya, 30, working professional. Wants to build consistent gym, reading, and meditation habits alongside work.
+- **Need:** A system that schedules non-work tasks as seriously as work tasks.
+
+### 4.5 Persona E — "The Builder"
+- Karan, 22, building a startup while in college. Has tasks across coding, marketing, content, and academics.
+- **Need:** Cross-domain task management with smart priority resolution.
+
+> **Design Implication:** Every UI label, placeholder text, onboarding question, and category must work for ALL of these personas. The app never assumes the user is a student. It never hardcodes "Physics" or "Chemistry" as defaults.
+
+---
+
+## 5. SCOPE
+
+### 5.1 MVP (Ship First)
+
+- [x] AI onboarding (adaptive, voice + text, general-purpose)
+- [x] **Auto-scheduler engine** (P1)
+- [x] **Push notification system** with danger zone alerts (P1)
+- [x] Screen time tracking via native module (P2)
+- [x] Task auto-categorization algorithm (P2)
+- [x] Focus timer (Pomodoro + Deep Work + Ultra Deep)
+- [x] Home screen widget (Android Glance)
+- [x] Calendar (Day / Week / Month views)
+- [x] Voice task input + NLP parsing
+- [x] Mood check-in + adaptive rescheduling
+- [x] Diary AI chat
+- [x] Goal tracker with milestones
+- [x] Confidence builder
+- [x] Anti-quit intervention
+- [x] Self-voice motivation
+- [x] Squad system with real-time leaderboard
+- [x] Analytics dashboard (RAI Score, screen time heatmap, productivity charts)
+- [x] Gamification (XP, levels, achievements, streaks)
+- [x] App blocker friction overlay
+- [x] Dark / light / amoled theming
+- [x] Full accessibility (TalkBack, font scaling, contrast)
+
+### 5.2 Out of Scope for MVP
+
+- iOS-specific features (iOS Screen Time API)
+- Desktop / web app
+- Parental dashboard
+- Video calls in squads
+- LMS integration
+- Subscription tiers
+- Wear OS
+
+---
+
+## 6. PRIORITY #1 — AUTO-SCHEDULER ENGINE
+
+> This is the most important feature in the entire app. If this works brilliantly, users will trust RAI with their day. If it schedules poorly, they will uninstall within 48 hours.
+
+### 6.1 Philosophy
+
+The scheduler must feel like a thoughtful human assistant, not a calendar optimizer. It must:
+1. Respect human energy patterns (not just clock time)
+2. Learn from the user's actual behavior (not just their stated preferences)
+3. Protect the user from overcommitting
+4. Adapt in real-time when things go wrong (task skipped, mood is low, day ran long)
+5. Explain its decisions in plain English
+
+### 6.2 Scheduler Inputs
+
+```typescript
+interface SchedulerInput {
+  // User profile constraints
+  sleepStart: string;           // "23:00"
+  sleepEnd: string;             // "07:00"
+  wakeBuffer: number;           // minutes after wake before first task (default: 30)
+  sleepBuffer: number;          // minutes before sleep for wind-down (default: 45)
+  mealTimes: MealSlot[];        // [{ name: "Lunch", start: "13:00", duration: 45 }]
+  preferredWorkHours: string[]; // ["09:00-12:00", "16:00-19:00"]
+  
+  // Existing calendar
+  existingTasks: ScheduledTask[];
+  existingEvents: CalendarEvent[]; // from Google Calendar sync (post-MVP)
+  
+  // Task to schedule
+  newTask: {
+    title: string;
+    category: TaskCategory;     // auto-detected by categorizer
+    estimatedMinutes: number;
+    deadline: string;           // ISO datetime
+    priority: 1 | 2 | 3 | 4;   // 1=low, 4=urgent
+    difficulty: 1 | 2 | 3 | 4 | 5;
+    moodSensitive: boolean;
+    dependencies: string[];     // task IDs that must be done first
+    isRecurring: boolean;
+    recurrenceRule?: RecurrenceRule;
+    preferredTimeOfDay?: "morning" | "afternoon" | "evening" | "any";
+    isQuickTask: boolean;       // true if <= 15 min → scheduler may batch these
+  }
+  
+  // Behavioral data (learned over time)
+  userEnergyProfile: EnergyProfile;
+  historicalCompletionRates: CompletionRateByHour;
+  dangerZoneHours: number[];    // hours with high distraction history
+}
+```
+
+### 6.3 Energy Profile Model
+
+The scheduler does not use hardcoded rules like "morning is +20 points." It builds a personal energy profile for each user over the first 7 days.
+
+```typescript
+interface EnergyProfile {
+  // Learned from focus session completion rates per hour
+  energyByHour: Record<number, number>; // hour (0-23) → energy score (0-100)
+  
+  // Learned from task completion rate per category
+  categoryBestHours: Record<TaskCategory, number[]>;
+  
+  // Circadian defaults (used before enough data exists)
+  chronotype: "morning" | "intermediate" | "evening";
+  
+  // Estimated from actual vs planned durations
+  durationAccuracyFactor: number; // 1.0 = perfect. 1.3 = user underestimates by 30%
+  
+  // Days with historically low performance
+  weakDays: ("Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat" | "Sun")[];
+}
+```
+
+**Cold Start (Days 1–7):** Use chronotype selected during onboarding + standard circadian defaults.  
+**Warm Model (Days 7–30):** Blend defaults with observed patterns.  
+**Full Model (30+ days):** Fully personalized per user.
+
+### 6.4 Slot Scoring Algorithm
+
+```
+For each available slot (start_time, duration):
+
+  BASE_SCORE = 50
+
+  + energyByHour[slot.hour] × 0.4           // personal energy weight (max +40)
+  + preferredWorkHour bonus × 15             // user stated this time is preferred
+  - dangerZone penalty × 20                  // this hour is historically high distraction
+  + priority urgency score (4→+25, 3→+10, 2→0, 1→-10)
+  + deadline proximity factor                // closer deadline = prefer sooner slot
+  - context switch penalty                   // different category than adjacent tasks: -8
+  + same category bonus                      // batching similar tasks: +5
+  - slot fragmentation penalty               // slot is too short relative to task: -15
+  + mood adjustment                          // if current mood < 3, prefer easier tasks
+  + dependency bonus                         // prerequisite task completed: +20
+  
+  FINAL_SCORE = clamped(BASE_SCORE, 0, 100)
+```
+
+The highest-scoring available slot wins.
+
+### 6.5 Long Task Splitting
+
+- If `estimatedMinutes > 90`: split into sessions
+- Session max: 90 min for difficulty ≥ 4, 120 min for difficulty ≤ 3
+- Mandatory break between sessions: 10–15 min (stored as a break block, not a task)
+- Sessions are scheduled on the same day if possible, else across consecutive days with smart sequencing
+
+### 6.6 Buffer Insertion
+
+- 15-min buffer before and after every scheduled task (prevents cascade failures)
+- Tasks that historically run long (duration accuracy factor > 1.2) get a `× durationAccuracyFactor` time allocation automatically
+
+### 6.7 Mood Adaptation (Real-Time Rescheduling)
+
+When a mood check-in returns mood ≤ 2:
+1. Identify tasks scheduled for the next 3 hours with difficulty ≥ 4
+2. Offer to move them to the next high-energy slot
+3. Replace with easier tasks from the unscheduled pool
+4. If no easier tasks exist, suggest a structured break or a "quick wins" session (tasks ≤ 15 min)
+
+### 6.8 Overload Detection
+
+Before confirming any schedule, the scheduler runs an overload check:
+
+```
+IF total scheduled minutes > (available minutes × 0.85):
+  → Warn: "Your day is packed at 92% capacity. I recommend removing [lowest priority task]."
+  → Show capacity bar
+  → Offer: [Auto-remove lowest priority] [Keep and risk overrun] [Extend to tomorrow]
+```
+
+### 6.9 Quick Tasks (< 15 min)
+
+Tasks under 15 minutes are "quick tasks." The scheduler:
+- Batches them into "quick wins" blocks (e.g., a 30-min block containing 2–3 quick tasks)
+- Prefers to place quick wins blocks in naturally low-energy transition periods (post-lunch, early evening)
+- Never splits a quick task across days
+
+### 6.10 Recurring Task Logic
+
+```typescript
+interface RecurrenceRule {
+  frequency: "daily" | "weekly" | "weekdays" | "custom";
+  daysOfWeek?: number[];       // 0=Sun, 6=Sat
+  endDate?: string;
+  skipDates?: string[];        // user-marked exceptions
+}
+```
+
+Recurring tasks auto-schedule for future instances. If a slot conflict arises, the scheduler finds the next available slot within ±2 hours of the usual time.
+
+### 6.11 Dependency Chains
+
+```
+Task B depends on Task A → Task B cannot be scheduled before Task A's earliest completion time.
+Scheduler enforces this silently.
+If Task A is delayed → all dependent tasks cascade-reschedule automatically.
+User is notified: "Completing 'Read Chapter 1' unlocks 'Write Summary'. I've adjusted your schedule."
+```
+
+### 6.12 Scheduler Output & Explanation
+
+Every scheduling decision produces a human-readable rationale:
+
+```
+"I scheduled 'Workout' at 7:00 AM because your energy data shows you're 40% more likely 
+to complete physical tasks in the morning. It's your highest-energy window."
+
+"I split 'Study Machine Learning' into two 90-min sessions because 3 hours in one block 
+has a 68% dropout rate for difficulty-5 tasks based on your history."
+
+"I moved 'Client Call Prep' to 4:30 PM — it conflicts with your lunch buffer and you 
+have a dependency: 'Review Brief' must finish first."
+```
+
+These rationales appear as tappable chips on scheduled task cards.
+
+---
+
+## 7. PRIORITY #2 — DANGER ZONE & PUSH NOTIFICATION SYSTEM
+
+### 7.1 Danger Zone Detection
+
+The danger zone is **not hardcoded.** It is computed fresh every week per user from their actual UsageStats data.
+
+```typescript
+interface DangerZoneProfile {
+  // Hours of day where user has consistently high distraction app usage
+  dangerHours: number[];          // e.g., [14, 15, 22, 23]
+  
+  // The top distraction apps for this user
+  topDistractionApps: string[];   // package names, ranked by time spent
+  
+  // Day-of-week patterns
+  weakestDay: string;             // e.g., "Saturday"
+  
+  // Doom loop patterns (sequential app switching)
+  doomLoopSequences: string[][];  // e.g., [["Instagram", "YouTube", "TikTok"]]
+  
+  // Confidence in the model
+  dataPoints: number;             // number of days of data collected
+  lastUpdated: string;
+}
+```
+
+**Algorithm:**
+1. Every Sunday at 6 AM, aggregate 7 days of UsageStats
+2. For each hour of the day, compute average distraction minutes
+3. Hours where avg distraction minutes > (avg productive minutes × 1.5) → flagged as danger hours
+4. Rank hours by danger score (0–100)
+5. Store top 3 danger hours as the user's personal danger zone
+6. Show danger zone as an annotated band on the calendar and heatmap
+
+**First 7 Days:** Use global averages (2–4 PM and 9–11 PM are statistically high distraction for most users) as bootstrap defaults. Display as "estimated danger zone" with a disclaimer. Replace with personal data after 7 days.
+
+### 7.2 Real-Time Risk Score
+
+The Procrastination Risk Score is computed every 5 minutes in a background task (via `expo-task-manager` + `expo-background-fetch`).
+
+```typescript
+interface RiskSignals {
+  // 0-20 points each, total = 0-100
+  pickupFrequency: number;      // phone pickups in last 30 min vs. baseline
+  appSwitchRate: number;        // rapid app switching → doom loop indicator
+  timeSinceLastFocus: number;   // minutes since last productive action
+  dangerHourScore: number;      // how deep into the danger zone is this hour?
+  missedTaskCount: number;      // tasks that were due but not started
+  currentMoodPenalty: number;   // low mood → higher risk
+}
+```
+
+If `totalRiskScore > 70` → trigger intervention notification.
+
+### 7.3 Push Notification System
+
+All notifications are sent via `expo-notifications` with proper Android notification channels.
+
+#### Notification Channels (Android)
+
+| Channel ID | Name | Importance | Sound | Vibration |
+|---|---|---|---|---|
+| `danger_zone` | Danger Zone Alert | HIGH | Custom tone | Long pattern |
+| `task_reminder` | Task Reminder | HIGH | Default | Short |
+| `streak_saver` | Streak Saver | HIGH | Custom | Medium |
+| `morning_brief` | Morning Briefing | DEFAULT | Gentle | Short |
+| `evening_report` | Evening Report | DEFAULT | None | Short |
+| `squad_activity` | Squad Activity | LOW | None | None |
+| `achievement` | Achievement | DEFAULT | Achievement chime | Cascade |
+| `mood_checkin` | Mood Check-In | LOW | None | None |
+
+#### Notification Types & Content
+
+**🔴 DANGER ZONE ALERT (Most Important)**
+```
+Title: "⚠️ Your danger zone just started"
+Body: "Between {startHour}–{endHour} you've spent avg {avgMin}min on {topApp}. 
+      Your next task '{taskTitle}' starts in {minutes}min. Lock in now?"
+Actions: [🚀 Start Focus] [😤 Snooze 10min] [📅 Reschedule]
+Style: BigText, expanded view shows today's progress bar
+```
+
+**🔴 PRE-DISTRACTION INTERCEPT (Risk > 70)**
+```
+Title: "You're heading into a scroll spiral 🌀"  
+Body: "I see the pattern. 4 app switches in 8 minutes. '{taskTitle}' is waiting. 
+      One tap to lock in."
+Actions: [🎯 Start Task] [⏰ Give me 10 min] [🔄 Reschedule task]
+Style: Heads-up notification, cannot be missed
+Sound: Custom subtle alert (not jarring)
+```
+
+**🟠 TASK REMINDER (15 min before)**
+```
+Title: "'{taskTitle}' in 15 minutes"
+Body: "Estimated {duration}min · {category} · {priority label}"
+Actions: [▶️ Start Now] [⏭️ Start on time] [📅 Reschedule]
+```
+
+**🟡 STREAK DANGER (8 PM, completion < 80%)**
+```
+Title: "Your {n}-day streak is at risk 🔥"
+Body: "Complete just 1 more task tonight to protect it. You've done {x}/{y} today."
+Actions: [✅ Let's do it] [📋 Show my tasks]
+```
+
+**🟢 MORNING BRIEFING (Wake time + 15 min)**
+```
+Title: "Good morning! Here's your day, {firstName} ☀️"
+Body: "{n} tasks · {topTask} starts at {time} · Energy: {chronotypeTip}"
+Actions: [📅 Open Schedule] [🎙 Add a task]
+Style: BigText with today's task list preview (first 3 tasks)
+```
+
+**🔵 EVENING REPORT (9 PM)**
+```
+Title: "Today: {x}/{y} tasks done ✨"  
+Body: "{distractionHours}h on distraction apps. 
+      {comparisonString}. {aiOneLiner}"
+      e.g., "That's 40min less than yesterday. Momentum building."
+Actions: [📊 Full Report] [📓 Open Diary]
+Style: BigPicture — shows today's productivity heatmap as notification image
+```
+
+**🏆 ACHIEVEMENT UNLOCKED**
+```
+Title: "Achievement Unlocked! {badgeEmoji} {badgeName}"
+Body: "{badgeDescription}"
+Actions: [🎉 View Achievement]
+Sound: Achievement chime
+Vibration: Haptic cascade pattern
+```
+
+**💭 MOOD CHECK-IN (Contextual, not just 2 PM)**
+```
+Triggered when: risk score is high AND user hasn't checked in for 4+ hours
+Title: "Quick check — how are you feeling?"
+Body: "Tap to tell me. I'll adjust your schedule if needed."
+Actions: [😔 Not great] [😐 Okay] [😊 Good] [🔥 Great]
+(Inline reply actions that directly log mood without opening app)
+```
+
+#### Notification Intelligence Rules
+
+- Never send more than 3 notifications in a 2-hour window
+- Suppress squad notifications during active focus sessions
+- Danger zone alerts are paused if the user has an active focus timer running
+- If user consistently snoozes a notification type → reduce frequency and surface this in Settings ("Looks like you snooze Mood Check-ins. Want to turn them off?")
+- Notification timing respects sleep hours (no notifications between sleepStart and sleepEnd)
+
+---
+
+## 8. PRIORITY #3 — SCREEN TIME TRACKING (NATIVE MODULE)
+
+### 8.1 `expo-usage-stats` Module
+
+This module wraps Android's `UsageStatsManager`.
+
+```typescript
+// Module API (TypeScript)
+interface ExpoUsageStats {
+  // Check if permission granted
+  hasPermission(): Promise<boolean>;
+  
+  // Open system settings to grant permission
+  requestPermission(): Promise<void>;
+  
+  // Get usage stats for a time range
+  getUsageStats(startMs: number, endMs: number): Promise<AppUsageRecord[]>;
+  
+  // Get hourly breakdown for today
+  getHourlyBreakdown(): Promise<HourlyUsage[]>;
+  
+  // Get app category classification
+  getAppCategory(packageName: string): Promise<AppCategory>;
+}
+
+interface AppUsageRecord {
+  packageName: string;
+  appName: string;
+  totalMinutes: number;
+  lastUsed: number;
+  firstUsed: number;
+  launchCount: number;
+}
+
+interface HourlyUsage {
+  hour: number;           // 0-23
+  distractionMinutes: number;
+  productiveMinutes: number;
+  totalMinutes: number;
+}
+```
+
+**Update Frequency:** Every 15 minutes via `BackgroundFetch`. Not real-time (battery preservation).
+
+**App Classification:**
+
+Apps are classified into two buckets automatically:
+
+```typescript
+type AppCategory = "distraction" | "productive" | "neutral" | "system";
+
+// Distraction apps (maintained list, updatable via remote config):
+const DISTRACTION_PACKAGES = [
+  "com.instagram.android",
+  "com.google.android.youtube",
+  "com.snapchat.android",
+  "com.facebook.katana",
+  "com.twitter.android",
+  "com.zhiliaoapp.musically", // TikTok
+  "com.pubg.imobile",         // BGMI
+  "com.netflix.mediaclient",
+  "com.spotify.music",
+  // ... (maintained list)
+];
+
+// User can override: mark any app as productive or distraction
+```
+
+**Storage:** 30-day rolling window in Room. Older entries auto-deleted.
+
+---
+
+## 9. SCREEN-BY-SCREEN SPECIFICATIONS
+
+### 9.1 Splash Screen
+**File:** `app/index.tsx` (auto-navigates)
+
+- Animated RAI atom logo with orbiting electrons (Reanimated 3)
+- Gradient background (indigo → violet → black based on theme)
+- Progress bar for app initialization
+- Auto-navigate: `onboardingComplete === false` → `/onboarding`, else → `/(tabs)/home`
+- Duration: 2–3 seconds max
+
+---
+
+### 9.2 Onboarding Flow
+**File:** `app/onboarding/index.tsx`
+
+**Design Principle:** General-purpose from question 1. No "student" assumption.
+
+**Question Flow (7 Questions, Adaptive):**
+
+```
+Q1: "What's your name?" 
+    → Text input + voice option
+
+Q2: "What best describes your main focus right now?"
+    Options: [Studying / Exams] [Work / Career] [Freelancing] [Building something] 
+             [Health & Fitness] [Personal Growth] [All of the above]
+    → Branches Q3 based on answer
+
+Q3A (Studying): "When's your big exam?" → Date picker + exam type
+Q3B (Work): "What kind of work do you do?" → Free text
+Q3C (Freelancing): "What type of projects?" → Multi-select chips
+Q3D (Building): "What are you building?" → Free text
+Q3E (Health): "What's your main health goal?" → Multi-select
+Q3F (Personal Growth): "What area matters most?" → Multi-select
+
+Q4: "What derails you the most?"
+    Options: [Social media] [YouTube / video] [Gaming] [Getting started] 
+             [Staying consistent] [Burnout] [Poor sleep]
+    → Multi-select (all that apply)
+
+Q5: "When do you naturally do your best work?"
+    Options: [Early morning (5–9 AM)] [Morning (9 AM–12 PM)] 
+             [Afternoon (12–5 PM)] [Evening (5–9 PM)] [Night (9 PM+)]
+
+Q6: "How many hours a day can you realistically commit?"
+    → Slider: 1h → 12h (default: 4h)
+
+Q7: "What keeps you going when it gets hard?"
+    Options: [Proving people wrong] [Family / loved ones] [Financial freedom]
+             [Passion for the work] [Fear of regret] [Competitive drive]
+    → This becomes the tone of motivational messages
+```
+
+**Completion Screen:**
+- AI generates a personalized 3-sentence profile summary using all answers
+- Shows estimated "Your productivity potential: X hours/day well-planned"
+- CTA: "Build my first day →"
+
+**UI:** Smooth horizontal slide transitions, top progress bar (Q1/7 → Q7/7), voice mode toggle on every question, back button available from Q2+.
+
+---
+
+### 9.3 Permissions Setup
+**File:** `app/onboarding/permissions.tsx`
+
+Sequential permission request screens (one per permission, full screen):
+
+```
+1. Notifications
+   Illustration: Phone with a friendly notification
+   Why: "I'll remind you before you drift, not after."
+   [Grant Notifications] [Skip — I'll miss reminders]
+
+2. Usage Access (Android Settings deeplink)
+   Illustration: Bar chart showing app usage
+   Why: "To find your personal danger zone, I need to see which apps pull you away."
+   [Open Settings] [Skip — No danger zone alerts]
+
+3. Accessibility Service (Android Settings deeplink)
+   Illustration: Shield icon
+   Why: "To pause distracting apps during focus time, I need this permission."
+   [Open Settings] [Skip — No app blocking]
+
+4. Microphone
+   Illustration: Sound wave
+   Why: "Add tasks in seconds by speaking. No typing needed."
+   [Allow Mic] [Skip — I'll type]
+```
+
+Each skip state stores `permissionDenied.{type} = true` and surfaces a "complete setup" card on the home screen.
+
+---
+
+### 9.4 Home Screen (Command Center)
+**File:** `app/(tabs)/home.tsx`
+
+**Layout (top to bottom, scrollable):**
+
+```
+┌─────────────────────────────────────────┐
+│  [RAI Logo]              [Avatar] [🔔]  │  ← TopBar
+├─────────────────────────────────────────┤
+│  ┌─────────────────────────────────┐    │
+│  │  FOCUS SCORE      ◎ 78         │    │  ← Hero Card
+│  │  ████████████░░░░  Today        │    │
+│  │  "You're 40min into a great     │    │
+│  │   day. Your danger zone starts  │    │
+│  │   at 2PM. Finish {task} first." │    │
+│  └─────────────────────────────────┘    │
+├─────────────────────────────────────────┤
+│  🔥 14 days  │  ⭐ 847 RAI  │  ✅ 3/6  │  ← Quick Stats
+├─────────────────────────────────────────┤
+│  TODAY'S SCHEDULE          [+ Add]      │
+│  ┌──────────────────────────────────┐   │
+│  │ 09:00  ● Work Report    90min    │   │  ← Task Cards
+│  │ 10:30  ● Gym            60min    │   │     Color dot = category color
+│  │ 12:00  🍽 Lunch Break           │   │
+│  │ 13:00  ● Read Chapter 3  45min  │   │
+│  │ 14:00  ⚠️ DANGER ZONE ──────── │   │  ← Danger zone band
+│  │ 16:00  ● Client Proposal 2hr    │   │
+│  └──────────────────────────────────┘   │
+├─────────────────────────────────────────┤
+│  AI INSIGHT                            │
+│  "You do your best writing at 9AM.     │
+│   I've moved 'Draft Article' there."   │
+├─────────────────────────────────────────┤
+│  QUICK STATS                           │
+│  Screen time today: 1h 24m ↓30%       │
+│  Focus sessions: 2  ·  XP today: +420 │
+└─────────────────────────────────────────┘
+
+                         [🎙 Mic FAB]
+                    [▶ START FOCUS]
+```
+
+**Behaviors:**
+- Pull-to-refresh: re-runs AI insight, syncs squad data
+- Swipe task card right → mark complete (green, haptic)
+- Swipe task card left → reschedule options
+- Tap danger zone band → opens Analytics > Screen Time tab
+- Hero card focus score animates on entry
+- Danger zone band pulses subtly when currently inside danger zone
+- Task cards show category color dot (not subject names)
+
+---
+
+### 9.5 Tasks Screen
+**File:** `app/(tabs)/tasks.tsx`
+
+**Layout:**
+```
+┌────────────────────────────────────────┐
+│  My Tasks           [🎙] [Filter] [+] │
+├────────────────────────────────────────┤
+│  [All] [Work] [Health] [Learning]      │  ← Dynamic category filter chips
+│  [Personal] [Creative] [Finance] [...]  │     Generated from user's actual tasks
+├────────────────────────────────────────┤
+│  TODAY                                 │
+│  ┌──────────────────────────────────┐  │
+│  │ ● High Priority                  │  │
+│  │   Work Report Draft   90min  9AM │  │
+│  │   [Work] [Due Today] [P4: Urgent]│  │
+│  └──────────────────────────────────┘  │
+│  ┌──────────────────────────────────┐  │
+│  │ ○ Medium                         │  │
+│  │   Grocery Shopping   30min  6PM  │  │
+│  │   [Personal] [P2]                │  │
+│  └──────────────────────────────────┘  │
+│  TOMORROW                              │
+│  ...                                   │
+│  UNSCHEDULED  (tap to auto-schedule)   │
+│  ...                                   │
+└────────────────────────────────────────┘
+```
+
+**Task Card Content:**
+- Left: Category color bar (full height)
+- Title (bold)
+- Scheduled time or "Unscheduled"
+- Duration estimate
+- Category chip (auto-detected, tappable to override)
+- Priority dot (red=urgent, orange=high, yellow=medium, gray=low)
+- Completion checkbox (right)
+
+**Interactions:**
+- Swipe left → Complete / Delete
+- Swipe right → Reschedule / Edit
+- Tap → Task Detail Bottom Sheet
+- Long press → Multi-select mode (batch complete, reschedule, delete, change category)
+- "Unscheduled" section has a "⚡ Auto-schedule all" button
+
+---
+
+### 9.6 Add / Edit Task Sheet
+**File:** `components/TaskSheet.tsx` (Bottom sheet, appears everywhere)
+
+**Fields:**
+```
+Title:          [Natural language input — AI parses the rest]
+                e.g., "Submit project proposal by Friday, 2 hours, very important"
+
+Category:       [Auto-detected chip] [Override →]
+                "Work" ← tappable to change
+
+Duration:       [Slider: 15min → 8hr] + [Quick: 15m · 30m · 1h · 2h · 3h]
+
+Deadline:       [Date/time picker] [Quick: Today · Tomorrow · This week · No deadline]
+
+Priority:       [Low] [Medium] [High] [Urgent]  ← tap to select
+
+Difficulty:     [1] [2] [3] [4] [5]  ← star rating
+
+Mood Sensitive: [Toggle] "Reschedule if I'm not feeling it"
+
+Recurring:      [Toggle] → [Daily / Weekdays / Weekly / Custom]
+
+Notes:          [Optional text area]
+
+Depends on:     [Search existing tasks]
+```
+
+**Smart Parsing:** When the user types in the Title field, after 1 second of pause, Claude parses the text and auto-fills Duration, Deadline, and Priority. User sees chips appear below: "Detected: 2 hours · Friday · High Priority" with a ✏ to override.
+
+**Voice Mode:** Tap mic icon next to Title → full-screen voice capture → auto-fills all fields.
+
+**Bottom CTA:**
+- [💾 Save (unscheduled)] — stores task without scheduling
+- [⚡ Save & Auto-Schedule] — runs scheduler, shows preview, confirms
+
+---
+
+### 9.7 Calendar Screen
+**File:** `app/(tabs)/calendar.tsx`
+
+**Three views via top tab:**
+
+**Day View:**
+- Vertical time grid 5 AM → midnight
+- Tasks as colored blocks (height = duration)
+- Category colors consistent app-wide
+- Red moving line = current time
+- Danger zone hours shaded in amber
+- Sleep periods grayed out
+- Meal times as light gray blocks
+- Tap empty slot → Add Task Sheet (time pre-filled)
+- Long press + drag → reschedule (snap to 15-min increments, haptic on snap)
+
+**Week View:**
+- 7-column grid (Mon–Sun)
+- Mini colored pills per task
+- Completion % per day (vertical bar at column top)
+- Today column highlighted
+- Tap column header → switches to Day View for that day
+
+**Month View:**
+- Standard 7×5 grid
+- Category color dots per day (max 4, then "+X more")
+- Completion ring overlay (thin)
+- Today: violet circle
+- Tap day → Day View
+
+**Auto-Schedule FAB:**
+- Bottom right: "⚡ Auto-Schedule"
+- Sheet: lists unscheduled tasks, runs scheduler, shows animated preview, confirm or edit
+
+---
+
+### 9.8 Focus Timer Screen
+**File:** `app/focus/timer.tsx`
+
+**Layout:**
+```
+┌──────────────────────────────────────┐
+│  ← Back                     ···     │
+│                                      │
+│         Task: Work Report            │
+│         Category: Work 🔵            │
+│                                      │
+│         ╔══════════════╗             │
+│         ║   24:38      ║   ← SVG    │
+│         ║   remaining  ║     arc    │
+│         ╚══════════════╝             │
+│                                      │
+│   [25min] [50min] [90min]  ← tabs   │
+│                                      │
+│   🎵 Background: [Rain ▼]            │
+│                                      │
+│   ⭐ +0 XP → accumulates live       │
+│                                      │
+│   [⏸ Pause]  [⏹ End Session]        │
+│                                      │
+│   Next: 5-min break, then           │
+│   "Read Chapter 3" (45min)          │
+└──────────────────────────────────────┘
+```
+
+**Behaviors:**
+- Start → notification: "Focus session in progress · {task}"
+- Pause > 5 min → bottom sheet: "Having trouble? [Reschedule task] [Take a break] [Keep going]"
+- Leave app during session → 30-sec grace, then notification: "Come back — you're 60% done!"
+- Complete → confetti burst, haptic cascade, TTS "{firstName}, solid work!", XP awarded, task auto-marked complete
+- XP counter animates in real time (+1 XP per minute, bonus for completing)
+- Chain sessions: after break, auto-starts next scheduled task with 3-second countdown
+
+---
+
+### 9.9 Mood Check-In
+**File:** `components/MoodCheckIn.tsx` (Bottom sheet, appears contextually)
+
+**UI:**
+```
+How are you feeling right now?
+
+😫    😟    😐    🙂    🤩
+ 1     2     3     4     5
+
+[Why?]  ← appears after tap
+  [Tired] [Stressed] [Distracted]
+  [Fine]  [Excited]  [Anxious]
+  [Focused] [Burnt out]
+
+"Based on your mood, should I move
+ 'Work Report' (difficulty 5) to 
+ tomorrow morning?" 
+  [Yes, reschedule] [No, I'll push through]
+  [Give me an easier task instead]
+```
+
+**Triggers:**
+1. First app open of the day
+2. After skipping a task
+3. Manual trigger (home screen chip)
+4. Risk score > 60 (AI proactively asks)
+5. Via notification inline action
+
+---
+
+### 9.10 Analytics Dashboard
+**File:** `app/(tabs)/analytics.tsx`
+
+**Three tabs:** [RAI Score] [Screen Time] [Productivity]
+
+**RAI Score Tab:**
+```
+┌──────────────────────────────────────┐
+│  RAI SCORE                           │
+│                                      │
+│         ╔══════════════╗             │
+│         ║     847      ║  ← 0-1000  │
+│         ║  Dedicated   ║             │
+│         ║  Scholar     ║             │
+│         ╚══════════════╝             │
+│                                      │
+│  Breakdown:                          │
+│  Consistency  ████████░░  78/100    │
+│  Focus        ██████░░░░  62/100    │
+│  Planning     █████████░  88/100    │
+│  Recovery     ███████░░░  71/100    │
+│  Social       ████░░░░░░  40/100    │
+│  Growth       ████████░░  76/100    │
+│                                      │
+│  📈 7-day trend: ↑ 43 points        │
+│                                      │
+│  💡 "Your weakest area is Social.   │
+│      Join or create a squad to      │
+│      unlock 15+ points."            │
+└──────────────────────────────────────┘
+```
+
+**Screen Time Tab:**
+```
+┌──────────────────────────────────────┐
+│  SCREEN TIME                         │
+│                                      │
+│  Today: 2h 18m on distraction apps  │
+│  ↓ 42min vs yesterday ✅            │
+│                                      │
+│  YOUR DANGER ZONE: 2PM – 4PM        │
+│  [Based on 23 days of your data]    │
+│                                      │
+│  24-HOUR HEATMAP                    │
+│  [0][0][0][░][░][▓][▓][█][█]...   │
+│   12  1  2  3  4  5  6  7  8 AM    │
+│                                      │
+│  TOP APPS TODAY:                     │
+│  📱 Instagram    48min  ████░░      │
+│  📹 YouTube      31min  ███░░░      │
+│  💬 WhatsApp     18min  ██░░░░      │
+│                                      │
+│  Risk Score Now: 34/100 🟢          │
+│                                      │
+│  DISTRACTION SAVED: 1h 12min ✨     │
+└──────────────────────────────────────┘
+```
+
+**Productivity Tab:**
+```
+- Task completion rate: bar chart (7 days)
+- Best focus hours: 24h heatmap (green = productive)
+- Category breakdown: donut chart (time spent per category)
+- Streak calendar: GitHub contribution graph (30 days)
+- Weekly AI report (generated every Monday 8 AM)
+```
+
+---
+
+### 9.11 Diary & AI Chat Screen
+**File:** `app/diary/index.tsx`
+
+- Chat UI: user right (violet bubble), AI left (dark card)
+- AI opens: "How was your day? What was the hardest moment?"
+- User types or speaks (mic button in input bar)
+- AI references past entries: "Last Tuesday you also felt stressed about this project. Here's what helped..."
+- After 3+ exchanges: AI generates daily summary card
+- User rating slider (1–10) + AI's independent rating (1–10)
+- Both ratings shown side by side with a brief explanation of the difference
+
+**Diary History:**
+- Calendar grid (30 days)
+- Each day: mood emoji + colored completion dot
+- Tap → view that day's full conversation
+- Search: "Show me days when I felt anxious"
+
+---
+
+### 9.12 Goal Tracker
+**File:** `app/goals/index.tsx`
+
+- Progress ring for main goal (large, animated)
+- Days remaining counter
+- Category-wise progress bars (time invested vs. target)
+- Milestone timeline (horizontal dots): completed (violet), current (pulsing), upcoming (gray)
+- "Add Goal" → title, type, deadline, sub-goals builder (drag to reorder), AI suggests sub-goals
+
+---
+
+### 9.13 Squad Screen
+**File:** `app/(tabs)/squad.tsx`
+
+Three tabs: [Leaderboard] [Activity] [My Squad]
+
+- Leaderboard: Real-time ranking by RAI Score. Top 3: gold/silver/bronze crowns. Your position: violet highlight. Animated score rolls.
+- Activity Feed: "Riya completed 'Morning Run' ✅", "Arjun hit a 14-day streak 🔥"
+- My Squad: Members grid, invite code + WhatsApp/Instagram share, weekly challenge with squad progress bar
+
+---
+
+### 9.14 Confidence Builder
+**File:** `app/confidence.tsx`
+
+- Confidence score ring (0–100)
+- 7-day trend line chart
+- AI affirmations referencing specific recent data
+- "Confidence Boost" button → AI generates personalized pep talk
+- Recovery graph: shows how quickly you bounce back after bad days (improving over time = confidence milestone)
+
+---
+
+### 9.15 Achievements Screen
+**File:** `app/achievements.tsx`
+
+- Badge grid (locked = grayscale, unlocked = colorful + shine animation)
+- Categories: Consistency · Focus · Social · Milestones · Recovery · Streaks
+- XP bar + current level + level title
+- Level-up animation: full-screen confetti, number roll, haptic cascade, TTS
+
+---
+
+### 9.16 Profile & Settings
+**File:** `app/profile/index.tsx`, `app/settings/index.tsx`
+
+- Profile modal: avatar, name, streak, quick stats
+- Edit Profile: name, avatar, goal type, preferred work hours, sleep schedule
+- Settings:
+  - Appearance: Dark / Light / AMOLED / System
+  - Notifications: per-channel toggles + time pickers
+  - Focus defaults: timer length, break length, sound
+  - Blocked apps: manage blocked apps list
+  - Data: Export JSON, Delete all, Clear AI memory
+  - AI Memory: list of learned facts with individual delete buttons
+  - Danger Zone: view / override your detected danger hours
+
+---
+
+### 9.17 Anti-Quit Screen
+**File:** `app/anti-quit.tsx`
+
+**Triggers:**
+- App not opened for 3 consecutive days
+- Uninstall detected (via package monitor module)
+- User taps "I'm struggling" in Settings
+
+**Content:**
+- Full-screen. Dark, calm design.
+- AI message referencing the user's specific achievements
+- SVG timeline: tasks completed, hours focused, streak record, best day
+- "Comeback Mode" CTA: 3-day gentle re-entry schedule (no hard tasks, max 2 tasks/day)
+- "Talk to RAI" → Diary Chat
+- "Call a squad member" → Squad member list
+
+---
+
+## 10. TASK AUTO-CATEGORIZATION ALGORITHM
+
+### 10.1 Philosophy
+
+Tasks are **never locked** to a fixed set of categories like "Physics / Chemistry / Maths." The system detects the right category from the task title and context, generates new categories as needed, and only groups tasks that genuinely belong together.
+
+### 10.2 Category Taxonomy (Dynamic, Not Hardcoded)
+
+**Tier 1 — Global Categories (always available):**
+```
+Work          → Reports, meetings, client work, deadlines
+Learning      → Courses, studying, reading, practice
+Health        → Gym, running, meditation, sleep hygiene
+Creative      → Writing, design, music, video, art
+Personal      → Errands, admin, family, home
+Finance       → Budget, invoices, investments, bills
+Social        → Events, calls, messages, networking
+Side Project  → Building, coding, research
+```
+
+**Tier 2 — Domain-Specific Sub-Categories (user-generated, AI-detected):**
+```
+If user has "Physics numericals" and "Physics revision" → auto-create "Physics" sub-category under Learning
+If user has "Client A proposal" and "Client A call" → auto-create "Client A" grouping under Work
+If user has "Leg day", "Chest day" → auto-create "Gym" sub-category under Health
+```
+
+These sub-categories appear as filter chips on the Tasks screen only once there are 3+ tasks in a sub-category.
+
+### 10.3 Categorization Algorithm
+
+```typescript
+async function categorizeTask(title: string, context: UserContext): Promise<TaskCategory> {
+  
+  // Step 1: Keyword matching (fast, no AI call)
+  const keywordMatch = matchKeywords(title, CATEGORY_KEYWORD_MAP);
+  if (keywordMatch.confidence > 0.85) return keywordMatch.category;
+  
+  // Step 2: Pattern matching against user's existing tasks
+  const historicalMatch = matchAgainstHistory(title, userTaskHistory);
+  if (historicalMatch.confidence > 0.80) return historicalMatch.category;
+  
+  // Step 3: Claude API call (only if steps 1-2 are inconclusive)
+  const aiCategory = await claudeClassify(title, {
+    existingCategories: userContext.usedCategories,
+    userGoalType: userContext.goalType,
+    recentTasks: userContext.last10Tasks,
+  });
+  
+  return aiCategory;
+}
+```
+
+**Keyword map examples (partial):**
+```
+"gym", "workout", "run", "yoga", "meditation", "swim" → Health
+"report", "meeting", "client", "proposal", "invoice", "deadline" → Work
+"read", "study", "revise", "practice", "course", "lecture" → Learning
+"write", "design", "draw", "compose", "edit", "create" → Creative
+"groceries", "call mom", "dentist", "laundry", "bills" → Personal
+```
+
+### 10.4 Category Color System (Dynamic)
+
+Each category gets a color from a predefined palette. User can override. New auto-detected categories are assigned the next unused color.
+
+```typescript
+const CATEGORY_COLORS = {
+  Work: "#6366F1",         // Indigo
+  Learning: "#8B5CF6",     // Violet
+  Health: "#10B981",       // Emerald
+  Creative: "#EC4899",     // Pink
+  Personal: "#F59E0B",     // Amber
+  Finance: "#06B6D4",      // Cyan
+  Social: "#F97316",       // Orange
+  "Side Project": "#14B8A6", // Teal
+  // Dynamic categories assigned from remaining palette
+};
+```
+
+---
+
+## 11. WIDGET SPECIFICATION
+
+### 11.1 Android Home Screen Widget
+
+**Tech:** Android `AppWidgetProvider` + Jetpack Glance, wrapped as `expo-app-widget` module. React Native communicates with the widget via `SharedPreferences` (data bridge).
+
+**Widget Sizes:**
+
+**Small (2×2) — "Next Task":**
+```
+┌────────────────────┐
+│ RAI  🔥 14 days    │
+│────────────────────│
+│ NEXT UP            │
+│ Work Report        │
+│ ● 90min · 9:00AM  │
+│────────────────────│
+│ [▶ Start]          │
+└────────────────────┘
+```
+
+**Medium (4×2) — "Today at a Glance":**
+```
+┌────────────────────────────────────┐
+│ RAI        🔥 14    ⭐ 847   ✅3/6 │
+│────────────────────────────────────│
+│ 9:00  ● Work Report      90min     │
+│ 10:30 ● Gym Session      60min     │
+│ 13:00 ● Read Chapter 3   45min     │
+│ ⚠️  Danger Zone: 2–4PM            │
+│────────────────────────────────────│
+│ [▶ Start Focus]    [+ Add Task]    │
+└────────────────────────────────────┘
+```
+
+**Large (4×4) — "Command Center":**
+```
+┌────────────────────────────────────┐
+│ RAI    Focus: 78  🔥14  ⭐847     │
+│────────────────────────────────────│
+│ TODAY'S SCHEDULE                   │
+│ ✅ 9:00  Work Report (done)        │
+│ ▶ 10:30  Gym Session (next up)    │
+│   13:00  Read Chapter 3            │
+│   16:00  Client Proposal           │
+│────────────────────────────────────│
+│ SCREEN TIME: 1h 24m  Risk: 34🟢   │
+│ ████████████░░░░  Danger zone: 2PM│
+│────────────────────────────────────│
+│ [▶ Start Focus] [🎙 Add] [📊 Stats]│
+└────────────────────────────────────┘
+```
+
+**Widget Update Frequency:** Every 15 minutes. Also updates immediately after: task completion, focus session start/end, mood check-in.
+
+**Widget Actions:**
+- "Start Focus" → deep links to `rai://focus?taskId={nextTaskId}`
+- "Add Task" → deep links to `rai://add-task`
+- Tap task → deep links to `rai://task/{taskId}`
+
+**Data Bridge (SharedPreferences schema):**
+```json
+{
+  "widget_next_task": { "title": "Gym Session", "category": "Health", "time": "10:30", "duration": 60 },
+  "widget_today_tasks": [...],
+  "widget_stats": { "streak": 14, "raiScore": 847, "completionRatio": "3/6" },
+  "widget_danger_zone": { "startHour": 14, "endHour": 16, "isActive": false },
+  "widget_risk_score": 34,
+  "widget_last_updated": 1714730400000
+}
+```
+
+---
+
+## 12. GAMIFICATION SYSTEM
+
+### 12.1 XP Formula
+
+```
+Task Completion XP = (difficulty × estimatedMinutes) / 8
+Focus Session XP = minutesCompleted × 1.5
+Streak Bonus XP = streakDays × 12
+Achievement XP = flat reward per achievement (10–500 XP)
+Mood Check-In XP = 10 XP (encourages emotional awareness)
+Diary Entry XP = 25 XP (encourages reflection)
+```
+
+### 12.2 Level System
+
+Exponential curve. Levels have titles that match the user's goal type (dynamically generated):
+
+| Level | XP Required | Generic Title | Student Title | Work Title |
+|---|---|---|---|---|
+| 1 | 0 | Beginner | Rookie | Newbie |
+| 5 | 500 | Consistent | Committed | Reliable |
+| 10 | 2,000 | Focused | Scholar | Professional |
+| 20 | 8,000 | Dedicated | Achiever | Performer |
+| 30 | 20,000 | Elite | Champion | Expert |
+| 50 | 100,000 | Grandmaster | Legend | Master |
+
+### 12.3 Achievement Categories
+
+| Category | Examples |
+|---|---|
+| Consistency | 7-Day Warrior, 30-Day Legend, Back in the Game (return after 3-day gap) |
+| Focus | Deep Diver (90min session), Marathon (4hr total), Phone-Free Day |
+| Speed | Early Bird (task before 8 AM), Night Owl (task after 10 PM) |
+| Social | Squad Leader, Verified 10 Friends, Accountability Partner |
+| Milestones | First Task Ever, 10 Tasks, 100 Tasks, 1,000 Focus Minutes |
+| Recovery | Comeback Kid (completed tasks day after a zero day), Resilient (3 comebacks) |
+| Scheduling | Perfectly Planned (100% of tasks auto-scheduled), No Overrides (0 blocker overrides) |
+
+---
+
+## 13. SQUAD & SOCIAL SYSTEM
+
+### 13.1 Squad Creation & Joining
+
+- Create squad: enter name → get invite code (6-char alphanumeric)
+- Join squad: enter invite code or scan QR
+- Max squad size: 10 members (MVP)
+- One squad per user (MVP)
+
+### 13.2 Leaderboard
+
+- Ranked by RAI Score (0–1000)
+- Updates via Supabase Realtime
+- Your row always visible (pinned to bottom if not in top view)
+- Weekly reset option (squad can vote to reset weekly for fresh competition)
+
+### 13.3 Weekly Challenge
+
+Auto-generated every Monday:
+```
+"Complete 20 focus hours this week" — Squad progress: 14/20 hrs (70%)
+Individual contribution bars shown
+```
+
+### 13.4 Activity Feed
+
+```
+🔥 Riya completed "Morning Run" · 2min ago
+⭐ Arjun's RAI Score crossed 500 · 15min ago
+📚 Vikram finished a 90-min Deep Work session · 1hr ago
+```
+
+Real-time via Supabase Realtime channel subscription.
+
+---
+
+## 14. VOICE & NLP SYSTEM
+
+### 14.1 Voice Task Input
+
+Flow:
+1. Tap mic → haptic start → animated waveform → real-time transcript
+2. Pause / re-tap → transcript sent to Claude API
+3. Claude extracts structured data (title, category, duration, deadline, priority)
+4. Auto-fills Add Task Sheet
+5. User reviews (any field editable) → confirm → scheduler runs
+
+**Sample phrases:**
+- "I need to finish the client proposal by Friday, it'll take about 2 hours, this is urgent"
+- "Add a workout tomorrow morning, 1 hour"
+- "Remind me to call my dentist sometime this week, 15 minutes"
+- "I have to study machine learning chapters 4 and 5 before Sunday, probably 4 hours total, it's really hard"
+
+### 14.2 Voice Rescheduling
+
+- "Move my workout to tomorrow evening"
+- "Delay client proposal by 2 days"
+- "Schedule my unscheduled tasks for this week"
+
+### 14.3 TTS (Text-to-Speech)
+
+Using `expo-speech`:
+- Reads onboarding questions
+- Morning briefing (optional, user can enable)
+- Achievement announcements
+- Focus session completions
+
+Voice profile: warm, slightly energetic, speed 1.1×
+
+---
+
+## 15. DATA MODEL
+
+### 15.1 Task
+
+```typescript
+interface Task {
+  id: string;                         // UUID
+  title: string;
+  categoryPrimary: TaskCategory;      // auto-detected
+  categorySecondary?: string;         // user-defined sub-category
+  categoryOverridden: boolean;        // true if user manually changed category
+  
+  estimatedMinutes: number;
+  actualMinutes?: number;             // filled when task completes
+  durationAccuracyHistory: number[];  // last 5 actual/estimated ratios for this category
+  
+  deadline?: string;                  // ISO datetime
+  priority: 1 | 2 | 3 | 4;
+  difficulty: 1 | 2 | 3 | 4 | 5;
+  moodSensitive: boolean;
+  
+  scheduledDate?: string;
+  scheduledTime?: string;
+  sessions: TaskSession[];
+  
+  completed: boolean;
+  completedAt?: string;
+  
+  isRecurring: boolean;
+  recurrenceRule?: RecurrenceRule;
+  parentRecurringId?: string;
+  
+  dependencies: string[];             // task IDs
+  
+  isQuickTask: boolean;               // <= 15 min
+  
+  verificationMethod?: "photo" | "ai" | "friend" | "none";
+  verificationProof?: string;
+  
+  skippedCount: number;
+  moodAtSkip?: number;
+  
+  notes?: string;
+  voiceTranscript?: string;
+  schedulerRationale?: string;        // AI explanation of why it was scheduled here
+  
+  createdAt: string;
+  updatedAt: string;
+}
+```
+
+### 15.2 UserProfile
+
+```typescript
+interface UserProfile {
+  id: string;
+  name: string;
+  firstName: string;
+  email: string;
+  avatarUrl?: string;
+  
+  // Onboarding data
+  primaryFocus: "studying" | "work" | "freelancing" | "building" | "health" | "personal_growth" | "mixed";
+  goalType?: string;
+  mainStruggle: string[];
+  motivation: string;
+  chronotype: "morning" | "intermediate" | "evening";
+  
+  // Schedule preferences
+  sleepStart: string;
+  sleepEnd: string;
+  wakeBuffer: number;
+  sleepBuffer: number;
+  mealTimes: MealSlot[];
+  preferredWorkHours: string[];
+  dailyCapacityMinutes: number;
+  
+  // Energy model (updated weekly)
+  energyProfile: EnergyProfile;
+  durationAccuracyFactor: number;
+  
+  // Gamification
+  xp: number;
+  level: number;
+  streak: number;
+  longestStreak: number;
+  lastActiveDate: string;
+  raiScore: number;
+  
+  // App state
+  onboardingComplete: boolean;
+  theme: "dark" | "light" | "amoled" | "system";
+  
+  // AI
+  aiMemory: AIMemoryFact[];
+  selfVoiceUris: string[];
+  
+  // Permissions granted
+  notificationsGranted: boolean;
+  usageStatsGranted: boolean;
+  accessibilityGranted: boolean;
+  microphoneGranted: boolean;
+}
+```
+
+### 15.3 DangerZoneProfile
+
+```typescript
+interface DangerZoneProfile {
+  dangerHours: number[];
+  topDistractionApps: string[];
+  weakestDayOfWeek: number;
+  doomLoopSequences: string[][];
+  dataPointsCount: number;
+  isBootstrapEstimate: boolean;   // true for first 7 days
+  lastComputedAt: string;
+  weeklyHistory: WeeklyDangerData[];
+}
+```
+
+### 15.4 Supabase Remote Schema
+
+```sql
+-- Squad tables only (everything else is local-first)
+squad_users (id, name, avatar_url, rai_score, xp, streak, last_active, updated_at)
+squads (id, name, invite_code, created_by, created_at, weekly_challenge_json)
+squad_members (squad_id, user_id, joined_at, role)
+squad_activity (id, squad_id, user_id, action_type, action_data, created_at)
+
+-- Indexes: squad_members(squad_id), squad_activity(squad_id, created_at DESC)
+-- RLS: users can only read rows where their user_id appears in squad_members
+```
+
+---
+
+## 16. NON-FUNCTIONAL REQUIREMENTS
+
+### 16.1 Performance
+
+| Metric | Target |
+|---|---|
+| Cold start | < 2 seconds on Snapdragon 720G, 4GB RAM |
+| Calendar render (50 tasks) | < 100ms |
+| Claude API response | < 2 seconds (skeleton loader after 500ms) |
+| Screen time sync | Every 15 minutes (not real-time) |
+| Widget update | Every 15 minutes + on key events |
+| Risk score calculation | Every 5 minutes (background) |
+| Scheduler (new task) | < 500ms |
+| Scheduler (full day rebuild) | < 2 seconds |
+
+### 16.2 Reliability
+
+- **Local-first:** All core features work fully offline. Supabase sync is opportunistic.
+- Background services survive device reboot via `BootReceiver` (expo-boot-receiver module)
+- `WorkManager` for all periodic tasks (battery-aware, guaranteed execution)
+- Task scheduling state is never lost — every change is immediately persisted to Room before any UI update
+
+### 16.3 Security
+
+- Claude API key: stored in EAS Secrets, proxied via Supabase Edge Function — never in client bundle
+- User data: encrypted at rest via SQLCipher (expo-sqlite with encryption key from expo-secure-store)
+- Supabase auth: JWT, RLS enforced at database level
+- No PII sent to Claude API except first name and anonymized task metadata
+- UsageStats: read-only, never sent to any server (processed entirely on-device)
+
+### 16.4 Accessibility
+
+- Minimum touch target: 48dp × 48dp
+- Content descriptions on all icons and images
+- TalkBack support for all interactive elements
+- Color contrast ratio ≥ 4.5:1 for all text
+- Font scaling support up to 200%
+- No color-only information (icons always accompany color coding)
+
+### 16.5 Battery & Resource Efficiency
+
+- UsageStats read: batched, not streaming
+- AccessibilityService: monitors package names only, not screen content
+- Background location: not used (GPS only used if user opts in for location-based task context)
+- Network requests: batched and deferred when on low battery
+- AI API calls: cached for identical inputs within a 5-minute window
+
+---
+
+## 17. USER FLOWS
+
+### 17.1 First-Time User Flow
+
+```
+Install
+→ Splash (2s)
+→ Onboarding Q1–Q7 (adaptive, voice-capable)
+→ Permissions Setup (sequential, skippable)
+→ Home Screen (pre-populated sample schedule for today)
+→ "Add your first task" tooltip appears
+→ User speaks: "I need to finish my project by Thursday, 3 hours, very important"
+→ Task Sheet pre-filled → user reviews → [Save & Auto-Schedule]
+→ Scheduler runs → Calendar shows task placed at optimal slot
+→ Scheduler rationale chip: "Placed at 9 AM — your highest energy window"
+→ Widget setup prompt (if Android 12+)
+→ Day 1 complete
+```
+
+### 17.2 Daily Active User Flow
+
+```
+Morning notification (wake time + 15min): "Good morning! 5 tasks, first up: Client Call at 9AM"
+→ Open app → Mood check-in (takes 5 seconds)
+→ Home screen → review schedule
+→ Tap first task → Start Focus Timer (50min deep work)
+→ Timer completes → haptic cascade → XP awarded → task marked done
+→ Next task auto-starts after break countdown
+→ 2PM: Danger zone starts
+→ Risk score hits 72 → Push notification: "⚠️ Danger zone active. You have 'Read Chapter 3' at 3PM. Lock in now?"
+→ User taps [Start Task] → Focus timer opens
+→ 9PM: Evening report notification
+→ Opens app → sees "4/5 tasks done. 1h 20min saved from distraction. Better than yesterday."
+→ Diary Chat (2 min) → AI generates daily summary
+→ RAI Score updates → streak preserved → close app
+```
+
+### 17.3 Distraction Interception Flow
+
+```
+User opens Instagram (blocked app during scheduled work block)
+→ expo-accessibility-overlay detects package switch
+→ Full-screen friction overlay appears:
+   - 10-second countdown
+   - "Your Client Proposal is waiting" (shows active task)
+   - [🚀 Back to Work] [🎵 Play my motivation] [⏸ I need 15min break]
+→ Path A: User taps [Back to Work] → overlay dismisses → RAI reopens
+→ Path B: User taps [15min break] → timer set → Instagram accessible → timer ends → notification "Break over. Ready to resume?"
+→ Path C: User taps skip (3rd override today) → must type: "I am choosing distraction because..."
+→ Override logged → evening report shows: "You overrode focus 3 times between 2–4PM. That's your pattern."
+```
+
+### 17.4 Danger Zone Alert Flow
+
+```
+Background task runs every 5 minutes
+→ Detects: current hour = 14 (in danger zone), risk signals elevated
+→ Risk score = 78 → threshold exceeded
+→ Notification sent (DANGER_ZONE channel): 
+   "⚠️ Your danger zone just started. You usually spend 47min on Instagram now. 
+    'Client Proposal' is next. Start now?"
+→ Actions: [🚀 Start Focus] [⏰ Snooze 10min] [📅 Reschedule]
+→ User taps [Start Focus] → app opens → Focus Timer auto-loads next task
+→ Intervention logged as successful
+```
+
+---
+
+## 18. SUCCESS METRICS
+
+### 18.1 North Star
+
+**Daily Focus Score Average** — average focus score (0–100) across all active users.
+
+### 18.2 Primary Metrics
+
+| Metric | Target | Measurement |
+|---|---|---|
+| Day 1 Retention | > 65% | Users who open app on day 2 |
+| Day 7 Retention | > 40% | Users active on day 7 |
+| Day 30 Retention | > 22% | Users active on day 30 |
+| Auto-Schedule Adoption | > 70% | Tasks scheduled via auto-scheduler vs. manual |
+| Scheduler Acceptance Rate | > 80% | Times user confirms AI schedule without manual changes |
+| Avg Tasks Completed/Day | > 4 | Per active user |
+| Avg Focus Minutes/Day | > 45 | Per active user |
+| Danger Zone Notification CTR | > 45% | Users who tap action on danger zone alert |
+| Distraction Time Reduction | > 30% | Week-over-week change |
+| Voice Task Adoption | > 35% | Tasks added via voice |
+| Widget Install Rate | > 40% | Users who add the widget |
+
+### 18.3 Scheduler Quality Metrics (Internal)
+
+| Metric | Target |
+|---|---|
+| Schedule acceptance rate (no manual edit) | > 80% |
+| On-time task start rate (started within 15 min of scheduled time) | > 60% |
+| Duration accuracy improvement (actual vs estimated, week 4 vs week 1) | > 15% improvement |
+| Overload warnings triggered | < 10% of scheduling events |
+
+---
+
+## 19. RELEASE CRITERIA
+
+The app ships when ALL of the following are true:
+
+**Scheduler (P1):**
+- [ ] Auto-scheduler places tasks correctly respecting all hard constraints
+- [ ] Energy profile builds correctly from focus session data after 7 days
+- [ ] Long task splitting works correctly (≤ 90-min blocks, breaks inserted)
+- [ ] Mood adaptation reschedules correctly when mood ≤ 2
+- [ ] Dependency chains are respected (Task B never before Task A)
+- [ ] Overload detection fires when capacity > 85%
+- [ ] Scheduler rationale explanations shown on task cards
+- [ ] Quick tasks batched into quick-wins blocks
+
+**Notifications (P1):**
+- [ ] Danger zone alert fires when risk > 70
+- [ ] Inline notification actions work (Start Focus, Snooze, Reschedule)
+- [ ] Morning briefing fires at wake time + 15 min
+- [ ] Evening report fires at 9 PM with correct data
+- [ ] Streak saver fires at 8 PM when completion < 80%
+- [ ] All notifications respect sleep hours (no alerts during sleep)
+- [ ] Notification rate limiter works (max 3 per 2-hour window)
+
+**Screen Time (P2):**
+- [ ] UsageStats native module reads real data accurately
+- [ ] Danger zone computed correctly from 7+ days of data
+- [ ] App classification (distraction vs. productive) works for top 20 Indian apps
+- [ ] 30-day rolling window auto-purges old data
+
+**General:**
+- [ ] Task auto-categorization works for 10+ task types across Work, Health, Learning, Personal
+- [ ] Voice task input: speak → parse → schedule → calendar (end-to-end)
+- [ ] Widget updates every 15 minutes and on key events
+- [ ] Widget actions deep-link correctly into the app
+- [ ] App blocker friction overlay appears correctly via AccessibilityService
+- [ ] Squad leaderboard updates in real-time via Supabase
+- [ ] Diary chat stores history and generates daily summaries
+- [ ] All 18+ screens functional, zero placeholders
+- [ ] Cold start < 2 seconds on Snapdragon 720G
+- [ ] Crash-free on Android 8.0+ (API 26+)
+- [ ] Dark, light, and AMOLED themes fully implemented
+- [ ] TalkBack accessibility on all interactive elements
+- [ ] All permissions requested with contextual explanation screens
+
+---
+
+## 20. IMPROVEMENTS & ROADMAP
+
+### 20.1 Improvements Over Original PRD
+
+These are meaningful upgrades beyond the v1 PRD, worth building into MVP:
+
+| # | Improvement | Why It Matters |
+|---|---|---|
+| 1 | **Personal danger zone detection** (vs. hardcoded 2–4 PM) | Every user is different. A night owl's danger zone is 11 PM, not 2 PM. Personalization = trust. |
+| 2 | **Circadian energy model** (vs. generic morning bonus) | The scheduler learns your actual performance patterns — more accurate placement = higher acceptance rate. |
+| 3 | **Duration learning** (actual vs. estimated tracking) | Users consistently under- or overestimate. After 2 weeks, the scheduler automatically corrects for this. No other app does this. |
+| 4 | **Dependency chains** | Real tasks depend on each other. Supporting this makes RAI usable for complex projects, not just simple to-dos. |
+| 5 | **Overload detection** (capacity protection) | Prevents the #1 cause of productivity app abandonment: the user puts in 12 tasks, completes 3, feels like a failure. |
+| 6 | **Quick task batching** | Short tasks (< 15 min) should be grouped, not scattered. Prevents context switching fatigue. |
+| 7 | **General-purpose categories** (vs. subjects only) | Opens the app to all users, not just exam students. 5× the addressable market. |
+| 8 | **Tier-2 dynamic sub-categories** | Emerges from the user's own data. Feels magical — the app learned that "Client A" is its own category without being told. |
+| 9 | **Notification rate limiter** | The biggest cause of notification opt-out is over-notification. Rate limiting preserves the channel for critical alerts. |
+| 10 | **Rich notification actions** | Users can start focus, snooze, or reschedule directly from the notification — without opening the app. Reduces friction to action. |
+| 11 | **Scheduler rationale in plain English** | Users trust systems they understand. Showing "why" each task was placed there dramatically increases schedule adherence. |
+| 12 | **Home screen widget** | Passive presence. Users see their schedule without opening the app. 40%+ widget install rates correlate with D30 retention. |
+| 13 | **AMOLED theme** | ~60% of Indian Android users have AMOLED screens. True black saves battery. Strong signal of quality. |
+| 14 | **API key proxied via Edge Function** | Client-side API key exposure is a critical security hole. Non-negotiable for production. |
+| 15 | **Mood via inline notification action** | 4-tap mood logging from notification (no app open needed) dramatically increases mood check-in rates. |
+
+### 20.2 Phase 2 (Month 2–3)
+
+- Google Calendar two-way sync (import events as hard blocks, export tasks to GCal)
+- AI-generated weekly planning session ("Sunday Ritual" — review last week, plan next week)
+- Time blocking mode (user blocks 9–11 AM for "deep work" → scheduler fills it intelligently)
+- Habit tracking (daily habits with streak tracking, separate from tasks)
+- iOS Screen Time API integration (ScreenTimeKit)
+- Notification A/B testing (experiment with message copy to optimize CTR)
+- Smart duration learning displayed to user ("You usually take 40min longer on Writing tasks. I've adjusted.")
+
+### 20.3 Phase 3 (Month 4–6)
+
+- iOS app (Swift/SwiftUI native for Screen Time API)
+- Subscription tiers: Free (5 tasks/day, basic notifications) / Pro (unlimited + advanced AI)
+- Web dashboard (Next.js) — deep analytics, weekly reports, schedule management from desktop
+- Coaching marketplace — connect with productivity coaches
+- Pomodoro variants unlockable (Flow State mode, 90-90-20 cycle)
+- AI study material recommendations (for Learning category tasks)
+- Smart calendar conflict detection (overlapping tasks auto-resolved)
+
+### 20.4 Phase 4 (Month 6–12)
+
+- Wear OS companion (focus timer on watch, haptic nudge on distraction)
+- Regional language support (Hindi, Tamil, Telugu, Bengali)
+- Institutional licenses (schools, coaching centers, companies)
+- AI video study buddy (animated avatar during focus sessions)
+- Parental visibility mode (read-only dashboard for parents)
+- Integration with JIRA/Notion/Linear for Work category task import
+
+---
+
+## APPENDIX A — Category Color Palette
+
+| Category | Hex | Usage |
+|---|---|---|
+| Work | `#6366F1` | Task chips, calendar blocks, charts |
+| Learning | `#8B5CF6` | Task chips, calendar blocks, charts |
+| Health | `#10B981` | Task chips, calendar blocks, charts |
+| Creative | `#EC4899` | Task chips, calendar blocks, charts |
+| Personal | `#F59E0B` | Task chips, calendar blocks, charts |
+| Finance | `#06B6D4` | Task chips, calendar blocks, charts |
+| Social | `#F97316` | Task chips, calendar blocks, charts |
+| Side Project | `#14B8A6` | Task chips, calendar blocks, charts |
+| Dynamic +1 | `#EF4444` | Auto-assigned to new categories |
+| Dynamic +2 | `#84CC16` | Auto-assigned |
+| Dynamic +3 | `#A855F7` | Auto-assigned |
+
+---
+
+## APPENDIX B — RAI Score Tiers
+
+| Score | Tier | Title |
+|---|---|---|
+| 0–99 | Novice | Just Getting Started |
+| 100–299 | Learner | Finding the Groove |
+| 300–599 | Scholar | Building Momentum |
+| 600–899 | Master | Discipline Master |
+| 900–1000 | Grandmaster | RAI Grandmaster |
+
+---
+
+## APPENDIX C — Key Glossary
+
+| Term | Definition |
+|---|---|
+| RAI Score | Composite productivity score (0–1000): Consistency + Focus + Planning + Recovery + Social + Growth |
+| Focus Score | Daily score (0–100) measuring task completion and distraction avoidance |
+| Danger Zone | Hours of day where a user has a personal history of high distraction, computed from 7+ days of UsageStats |
+| Energy Profile | Personalized hourly energy model built from focus session completion rates |
+| Duration Accuracy Factor | Ratio of actual to estimated task duration, learned per category over time |
+| Soft Deadline | Task deadline minus sleep buffer, used by scheduler as the latest possible slot |
+| Quick Task | Any task ≤ 15 minutes; batched into "quick wins" blocks rather than scheduled individually |
+| Doom Loop | Rapid app switching pattern (e.g., Instagram → YouTube → Instagram) indicating distraction spiral |
+| Mood Sensitive | Task flag: if user mood ≤ 2 at scheduled time, AI offers to reschedule or swap |
+| Scheduler Rationale | Plain-English explanation of why the AI placed a task in a specific slot |
+| MCP Server | Model Context Protocol layer handling Supabase auth and queries |
+| Comeback Mode | Reduced 3-day schedule (max 2 easy tasks/day) for users re-entering after a gap |
+
+---
+
+*Document Version: 2.0 | Status: Ready for Development | Platform: Expo (Android-First)*
