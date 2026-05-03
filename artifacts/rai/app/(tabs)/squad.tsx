@@ -97,7 +97,7 @@ export default function SquadScreen() {
       {allMembers.map((member, i) => {
         const isMe = member.id === profile.id || member.id === firebaseUserId;
         const isTop3 = i < 3 && squad;
-        const color = uidToColor(member.id);
+        const color = member.avatarColor ?? uidToColor(member.id);
         return (
           <View
             key={member.id}
@@ -251,7 +251,7 @@ export default function SquadScreen() {
             </View>
             {squad.members.map((m) => {
               const isMe = m.id === profile.id || m.id === firebaseUserId;
-              const color = uidToColor(m.id);
+              const color = m.avatarColor ?? uidToColor(m.id);
               return (
                 <View key={m.id} style={[styles.memberRow, { borderBottomColor: colors.border }]}>
                   <View style={[styles.memberAvatar, { backgroundColor: m.avatarUrl ? "transparent" : color, width: 36, height: 36, borderRadius: 18 }]}>

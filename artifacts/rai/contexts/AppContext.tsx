@@ -166,6 +166,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         xp: m.xp,
         streak: m.streak,
         lastActive: m.lastActive,
+        avatarColor: m.avatarColor,
         avatarUrl: m.avatarUrl,
       })),
     };
@@ -538,7 +539,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setSquad(null);
   }, [uid]);
 
-  // Keep squad member info fresh when profile changes
+  // Keep squad member info fresh when profile changes (including avatar)
   useEffect(() => {
     if (!uid || !squad) return;
     const isMember = squad.members.some((m) => m.id === uid);
@@ -548,9 +549,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       raiScore: profile.raiScore,
       xp: profile.xp,
       streak: profile.streak,
+      avatarColor: profile.avatarColor ?? uidToColor(uid),
       avatarUrl: profile.avatarUrl,
     });
-  }, [profile.raiScore, profile.xp, profile.streak]);
+  }, [profile.raiScore, profile.xp, profile.streak, profile.avatarUrl, profile.avatarColor]);
 
   const today = todayStr();
   const todayTasks = tasks.filter((t) => t.scheduledDate === today);

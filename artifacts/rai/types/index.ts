@@ -146,6 +146,7 @@ export interface SquadMember {
   id: string;
   name: string;
   avatarUrl?: string;
+  avatarColor?: string;
   raiScore: number;
   xp: number;
   streak: number;
