@@ -1,5 +1,8 @@
-import React, { useState } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform } from "react-native";
+import React, { useState, useRef } from "react";
+import {
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform,
+  Modal, Pressable, TextInput, KeyboardAvoidingView, ActivityIndicator,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -8,9 +11,18 @@ import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/contexts/AppContext";
 import { TaskSheet } from "@/components/TaskSheet";
 import { getCategoryColor } from "@/constants/categories";
+import { chatWithScheduler, SchedulerAction } from "@/lib/ai";
 import { Task } from "@/types";
 
 type CalView = "day" | "week" | "month";
+
+interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  action?: SchedulerAction;
+  applied?: boolean;
+}
 
 function timeToMinutes(time: string): number {
   const [h, m] = time.split(":").map(Number);
@@ -20,14 +32,24 @@ function timeToMinutes(time: string): number {
 export default function CalendarScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { tasks, completeTask, scheduleTask } = useApp();
+  const { tasks, completeTask, scheduleTask, addTask, updateTask, profile } = useApp();
   const [view, setView] = useState<CalView>("day");
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [showTaskSheet, setShowTaskSheet] = useState(false);
   const [prefillTime, setPrefillTime] = useState<string>();
+  const [showAIChat, setShowAIChat] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
+    {
+      id: "welcome",
+      role: "assistant",
+      text: `Hey ${profile.firstName}! I can see your full schedule and profile. Tell me what you'd like to plan, schedule, or reschedule — I'll handle it instantly.`,
+    },
+  ]);
+  const [chatInput, setChatInput] = useState("");
+  const [isAILoading, setIsAILoading] = useState(false);
+  const scrollRef = useRef<ScrollView>(null);
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
-
   const dateStr = selectedDate.toISOString().split("T")[0];
   const dayTasks = tasks.filter((t) => t.scheduledDate === dateStr && t.scheduledTime).sort((a, b) =>
     (a.scheduledTime ?? "").localeCompare(b.scheduledTime ?? "")
@@ -54,10 +76,93 @@ export default function CalendarScreen() {
       const isToday = dateStr === new Date().toISOString().split("T")[0];
       return isToday ? "Today" : selectedDate.toLocaleDateString("en", { weekday: "long", month: "short", day: "numeric" });
     }
-    if (view === "month") {
-      return selectedDate.toLocaleDateString("en", { month: "long", year: "numeric" });
-    }
+    if (view === "month") return selectedDate.toLocaleDateString("en", { month: "long", year: "numeric" });
     return selectedDate.toLocaleDateString("en", { month: "short", day: "numeric" });
+  };
+
+  const sendMessage = async () => {
+    const text = chatInput.trim();
+    if (!text || isAILoading) return;
+    setChatInput("");
+    setIsAILoading(true);
+
+    const userMsg: ChatMessage = { id: Date.now().toString(), role: "user", text };
+    setChatMessages((prev) => [...prev, userMsg]);
+    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+
+    const historyForAI = [...chatMessages, userMsg]
+      .filter((m) => m.role === "user" || m.role === "assistant")
+      .map((m) => ({ role: m.role, content: m.text }));
+
+    try {
+      const result = await chatWithScheduler(historyForAI, {
+        profile: {
+          firstName: profile.firstName,
+          chronotype: profile.chronotype,
+          sleepStart: profile.sleepStart,
+          sleepEnd: profile.sleepEnd,
+          preferredWorkHours: profile.preferredWorkHours,
+          primaryFocus: profile.primaryFocus,
+          motivation: profile.motivation,
+          mainStruggle: profile.mainStruggle,
+          dailyCapacityMinutes: profile.dailyCapacityMinutes,
+        },
+        tasks: tasks.map((t) => ({
+          id: t.id,
+          title: t.title,
+          scheduledDate: t.scheduledDate,
+          scheduledTime: t.scheduledTime,
+          deadline: t.deadline,
+          priority: t.priority,
+          categoryPrimary: t.categoryPrimary,
+          completed: t.completed,
+        })),
+      });
+
+      const aiMsg: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        text: result.text,
+        action: result.action,
+      };
+      setChatMessages((prev) => [...prev, aiMsg]);
+    } catch {
+      setChatMessages((prev) => [...prev, {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        text: "Sorry, I had trouble connecting. Try again!",
+      }]);
+    } finally {
+      setIsAILoading(false);
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+    }
+  };
+
+  const applyAction = async (msgId: string, action: SchedulerAction) => {
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    if (action.type === "create_task" && action.task) {
+      await addTask({
+        title: action.task.title,
+        estimatedMinutes: action.task.estimatedMinutes ?? 30,
+        priority: (action.task.priority ?? 2) as 1 | 2 | 3 | 4,
+        difficulty: (action.task.difficulty ?? 2) as 1 | 2 | 3 | 4 | 5,
+        categoryPrimary: action.task.categoryPrimary ?? "Personal",
+        scheduledDate: action.task.scheduledDate,
+        scheduledTime: action.task.scheduledTime,
+        deadline: action.task.deadline,
+        notes: action.task.notes,
+        moodSensitive: false,
+        isRecurring: false,
+      });
+    } else if (action.type === "schedule_task" && action.taskId) {
+      await updateTask(action.taskId, {
+        scheduledDate: action.scheduledDate,
+        scheduledTime: action.scheduledTime,
+      });
+    }
+    setChatMessages((prev) =>
+      prev.map((m) => m.id === msgId ? { ...m, applied: true } : m)
+    );
   };
 
   const HOURS = Array.from({ length: 18 }, (_, i) => i + 6);
@@ -134,7 +239,6 @@ export default function CalendarScreen() {
   const renderWeekView = () => {
     const weekDays = getWeekDays();
     const todayStr = new Date().toISOString().split("T")[0];
-
     return (
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
         <View style={styles.weekHeader}>
@@ -147,12 +251,8 @@ export default function CalendarScreen() {
                 <Text style={[styles.weekDayName, { color: colors.mutedForeground }]}>
                   {day.toLocaleDateString("en", { weekday: "short" }).slice(0, 1)}
                 </Text>
-                <View style={[styles.weekDayNum, {
-                  backgroundColor: isToday ? colors.primary : "transparent",
-                }]}>
-                  <Text style={[styles.weekDayNumText, { color: isToday ? "#FFF" : colors.foreground }]}>
-                    {day.getDate()}
-                  </Text>
+                <View style={[styles.weekDayNum, { backgroundColor: isToday ? colors.primary : "transparent" }]}>
+                  <Text style={[styles.weekDayNumText, { color: isToday ? "#FFF" : colors.foreground }]}>{day.getDate()}</Text>
                 </View>
                 <View style={styles.weekTaskDots}>
                   {dayTasks2.slice(0, 3).map((t) => (
@@ -163,7 +263,6 @@ export default function CalendarScreen() {
             );
           })}
         </View>
-
         <View style={{ padding: 16, gap: 10 }}>
           {weekDays.map((day) => {
             const ds = day.toISOString().split("T")[0];
@@ -195,7 +294,6 @@ export default function CalendarScreen() {
     const firstDay = new Date(year, month, 1).getDay();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const todayStr = new Date().toISOString().split("T")[0];
-
     const cells = Array.from({ length: firstDay + daysInMonth }, (_, i) => {
       if (i < firstDay) return null;
       const day = i - firstDay + 1;
@@ -204,7 +302,6 @@ export default function CalendarScreen() {
       const dt = tasks.filter((t) => t.scheduledDate === ds);
       return { day, ds, tasks: dt };
     });
-
     return (
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
         <View style={styles.monthGrid}>
@@ -221,12 +318,8 @@ export default function CalendarScreen() {
                 style={[styles.monthCell, isSelected && { backgroundColor: colors.primary + "22", borderRadius: 10 }]}
                 onPress={() => { setSelectedDate(new Date(cell.ds)); setView("day"); }}
               >
-                <View style={[styles.monthDayCircle, {
-                  backgroundColor: isToday ? colors.primary : "transparent",
-                }]}>
-                  <Text style={[styles.monthDayNum, { color: isToday ? "#FFF" : colors.foreground }]}>
-                    {cell.day}
-                  </Text>
+                <View style={[styles.monthDayCircle, { backgroundColor: isToday ? colors.primary : "transparent" }]}>
+                  <Text style={[styles.monthDayNum, { color: isToday ? "#FFF" : colors.foreground }]}>{cell.day}</Text>
                 </View>
                 <View style={styles.monthDots}>
                   {cell.tasks.slice(0, 3).map((t) => (
@@ -254,11 +347,19 @@ export default function CalendarScreen() {
               <Ionicons name="chevron-forward" size={22} color={colors.foreground} />
             </TouchableOpacity>
           </View>
-          <TouchableOpacity onPress={() => { setShowTaskSheet(true); }}>
-            <Ionicons name="flash" size={22} color={colors.primary} />
-          </TouchableOpacity>
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              onPress={() => setShowAIChat(true)}
+              style={[styles.aiBtn, { backgroundColor: colors.primary }]}
+            >
+              <Ionicons name="sparkles" size={16} color="#FFF" />
+              <Text style={styles.aiBtnText}>AI</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setShowTaskSheet(true)}>
+              <Ionicons name="flash" size={22} color={colors.primary} />
+            </TouchableOpacity>
+          </View>
         </View>
-
         <View style={styles.viewRow}>
           {(["day", "week", "month"] as CalView[]).map((v) => (
             <TouchableOpacity
@@ -281,6 +382,123 @@ export default function CalendarScreen() {
       {view === "week" && renderWeekView()}
       {view === "month" && renderMonthView()}
 
+      {/* ── AI Scheduler Chat Modal ── */}
+      <Modal visible={showAIChat} transparent animationType="slide" onRequestClose={() => setShowAIChat(false)}>
+        <View style={styles.aiModalContainer}>
+          <Pressable style={styles.aiModalBackdrop} onPress={() => setShowAIChat(false)} />
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            style={[styles.aiSheet, { backgroundColor: colors.background, paddingBottom: insets.bottom + 8 }]}
+          >
+            {/* Header */}
+            <View style={[styles.aiHeader, { borderBottomColor: colors.border }]}>
+              <View style={styles.aiHeaderLeft}>
+                <View style={[styles.aiHeaderIcon, { backgroundColor: colors.primary }]}>
+                  <Ionicons name="sparkles" size={16} color="#FFF" />
+                </View>
+                <View>
+                  <Text style={[styles.aiHeaderTitle, { color: colors.foreground }]}>RAI Scheduler</Text>
+                  <Text style={[styles.aiHeaderSub, { color: colors.mutedForeground }]}>AI with full access to your data</Text>
+                </View>
+              </View>
+              <TouchableOpacity onPress={() => setShowAIChat(false)}>
+                <Ionicons name="close" size={22} color={colors.mutedForeground} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Messages */}
+            <ScrollView
+              ref={scrollRef}
+              style={styles.aiMessages}
+              contentContainerStyle={{ padding: 16, gap: 12 }}
+              showsVerticalScrollIndicator={false}
+            >
+              {chatMessages.map((msg) => (
+                <View key={msg.id} style={[
+                  styles.msgRow,
+                  msg.role === "user" ? styles.msgRowUser : styles.msgRowAI,
+                ]}>
+                  {msg.role === "assistant" && (
+                    <View style={[styles.msgAvatar, { backgroundColor: colors.primary }]}>
+                      <Ionicons name="sparkles" size={12} color="#FFF" />
+                    </View>
+                  )}
+                  <View style={{ flex: 1, gap: 8 }}>
+                    <View style={[
+                      styles.msgBubble,
+                      msg.role === "user"
+                        ? [styles.msgBubbleUser, { backgroundColor: colors.primary }]
+                        : [styles.msgBubbleAI, { backgroundColor: colors.card, borderColor: colors.border }],
+                    ]}>
+                      <Text style={[styles.msgText, { color: msg.role === "user" ? "#FFF" : colors.foreground }]}>
+                        {msg.text}
+                      </Text>
+                    </View>
+                    {msg.action && msg.role === "assistant" && (
+                      <TouchableOpacity
+                        onPress={() => !msg.applied && applyAction(msg.id, msg.action!)}
+                        style={[
+                          styles.applyBtn,
+                          {
+                            backgroundColor: msg.applied ? colors.success + "22" : colors.primary,
+                            borderColor: msg.applied ? colors.success : colors.primary,
+                          },
+                        ]}
+                        disabled={msg.applied}
+                      >
+                        <Ionicons
+                          name={msg.applied ? "checkmark-circle" : "flash"}
+                          size={14}
+                          color={msg.applied ? colors.success : "#FFF"}
+                        />
+                        <Text style={[styles.applyBtnText, { color: msg.applied ? colors.success : "#FFF" }]}>
+                          {msg.applied
+                            ? "Applied!"
+                            : msg.action.type === "create_task"
+                            ? `Add "${msg.action.task?.title ?? "task"}" to schedule`
+                            : "Apply change"}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+              ))}
+              {isAILoading && (
+                <View style={styles.msgRow}>
+                  <View style={[styles.msgAvatar, { backgroundColor: colors.primary }]}>
+                    <Ionicons name="sparkles" size={12} color="#FFF" />
+                  </View>
+                  <View style={[styles.msgBubble, styles.msgBubbleAI, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                    <ActivityIndicator size="small" color={colors.primary} />
+                  </View>
+                </View>
+              )}
+            </ScrollView>
+
+            {/* Input */}
+            <View style={[styles.aiInputRow, { borderTopColor: colors.border, backgroundColor: colors.background }]}>
+              <TextInput
+                style={[styles.aiInput, { backgroundColor: colors.card, color: colors.foreground, borderColor: colors.border }]}
+                placeholder="Schedule my gym, plan tomorrow..."
+                placeholderTextColor={colors.mutedForeground}
+                value={chatInput}
+                onChangeText={setChatInput}
+                onSubmitEditing={sendMessage}
+                returnKeyType="send"
+                multiline
+              />
+              <TouchableOpacity
+                onPress={sendMessage}
+                style={[styles.sendBtn, { backgroundColor: chatInput.trim() ? colors.primary : colors.secondary }]}
+                disabled={!chatInput.trim() || isAILoading}
+              >
+                <Ionicons name="send" size={18} color={chatInput.trim() ? "#FFF" : colors.mutedForeground} />
+              </TouchableOpacity>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
+
       <TaskSheet
         visible={showTaskSheet}
         onClose={() => { setShowTaskSheet(false); setPrefillTime(undefined); }}
@@ -294,8 +512,11 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   header: { paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: 1, gap: 10 },
   headerTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: 12 },
   navRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   dateLabel: { fontSize: 16, fontFamily: "Inter_700Bold" },
+  aiBtn: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6 },
+  aiBtnText: { fontSize: 13, fontFamily: "Inter_700Bold", color: "#FFF" },
   viewRow: { flexDirection: "row", gap: 8 },
   viewBtn: { flex: 1, borderRadius: 8, borderWidth: 1, paddingVertical: 6, alignItems: "center" },
   viewBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
@@ -328,4 +549,27 @@ const styles = StyleSheet.create({
   monthDayNum: { fontSize: 13, fontFamily: "Inter_500Medium" },
   monthDots: { flexDirection: "row", gap: 2 },
   monthDot: { width: 4, height: 4, borderRadius: 2 },
+
+  aiModalContainer: { flex: 1, justifyContent: "flex-end" },
+  aiModalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.5)" },
+  aiSheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, height: "82%", overflow: "hidden" },
+  aiHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 16, borderBottomWidth: 1 },
+  aiHeaderLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
+  aiHeaderIcon: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  aiHeaderTitle: { fontSize: 16, fontFamily: "Inter_700Bold" },
+  aiHeaderSub: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  aiMessages: { flex: 1 },
+  msgRow: { flexDirection: "row", gap: 8, alignItems: "flex-end" },
+  msgRowUser: { flexDirection: "row-reverse" },
+  msgRowAI: { flexDirection: "row" },
+  msgAvatar: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  msgBubble: { borderRadius: 16, padding: 12, maxWidth: "85%", borderWidth: 1 },
+  msgBubbleUser: { borderTopRightRadius: 4, borderColor: "transparent" },
+  msgBubbleAI: { borderTopLeftRadius: 4 },
+  msgText: { fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 21 },
+  applyBtn: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, borderWidth: 1, alignSelf: "flex-start" },
+  applyBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  aiInputRow: { flexDirection: "row", alignItems: "flex-end", gap: 10, padding: 12, borderTopWidth: 1 },
+  aiInput: { flex: 1, borderRadius: 16, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 10, fontSize: 14, fontFamily: "Inter_400Regular", maxHeight: 100 },
+  sendBtn: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
 });

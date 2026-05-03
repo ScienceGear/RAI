@@ -144,6 +144,101 @@ export async function generateWeeklyReport(params: {
   );
 }
 
+export interface SchedulerAction {
+  type: "create_task" | "schedule_task" | "delete_task";
+  task?: {
+    title: string;
+    estimatedMinutes: number;
+    priority: number;
+    difficulty: number;
+    scheduledDate?: string;
+    scheduledTime?: string;
+    deadline?: string;
+    categoryPrimary?: string;
+    notes?: string;
+  };
+  taskId?: string;
+  scheduledDate?: string;
+  scheduledTime?: string;
+}
+
+export async function chatWithScheduler(
+  messages: Array<{ role: string; content: string }>,
+  context: {
+    profile: {
+      firstName: string;
+      chronotype: string;
+      sleepStart: string;
+      sleepEnd: string;
+      preferredWorkHours: string[];
+      primaryFocus: string;
+      motivation: string;
+      mainStruggle: string[];
+      dailyCapacityMinutes: number;
+    };
+    tasks: Array<{
+      id: string;
+      title: string;
+      scheduledDate?: string;
+      scheduledTime?: string;
+      deadline?: string;
+      priority: number;
+      categoryPrimary: string;
+      completed: boolean;
+    }>;
+  }
+): Promise<{ text: string; action?: SchedulerAction }> {
+  const today = new Date().toISOString().split("T")[0];
+  const todayTasks = context.tasks.filter((t) => t.scheduledDate === today && !t.completed);
+  const upcomingTasks = context.tasks
+    .filter((t) => !t.completed && t.scheduledDate && t.scheduledDate >= today)
+    .slice(0, 10)
+    .map((t) => `- "${t.title}" on ${t.scheduledDate} at ${t.scheduledTime ?? "TBD"} (priority ${t.priority}, cat: ${t.categoryPrimary})`)
+    .join("\n");
+
+  const system = `You are RAI, an elite AI productivity coach and schedule planner with full access to ${context.profile.firstName}'s data.
+
+USER PROFILE:
+- Name: ${context.profile.firstName}
+- Chronotype: ${context.profile.chronotype} (prefers: ${context.profile.preferredWorkHours.join(", ")})
+- Sleep: ${context.profile.sleepEnd} wake up, ${context.profile.sleepStart} bedtime
+- Primary focus: ${context.profile.primaryFocus}
+- Motivation: ${context.profile.motivation}
+- Main struggles: ${context.profile.mainStruggle.join(", ")}
+- Daily capacity: ${context.profile.dailyCapacityMinutes} minutes
+
+TODAY'S SCHEDULE (${today}):
+${todayTasks.length > 0 ? todayTasks.map((t) => `- "${t.title}" at ${t.scheduledTime ?? "TBD"}`).join("\n") : "Nothing scheduled yet"}
+
+UPCOMING TASKS:
+${upcomingTasks || "No upcoming tasks"}
+
+INSTRUCTIONS:
+- Be concise, warm, and specific. Max 3 sentences of response text.
+- If the user wants to CREATE a task, schedule something, or plan their day, respond with text AND an ACTION block.
+- For ACTION, use this exact format on its own line at the end: ACTION:{"type":"create_task","task":{"title":"...","estimatedMinutes":30,"priority":2,"difficulty":2,"scheduledDate":"${today}","scheduledTime":"09:00","categoryPrimary":"Work"}}
+- Use today's date ${today} as reference. Tomorrow = ${new Date(Date.now() + 86400000).toISOString().split("T")[0]}.
+- Respect the user's chronotype and preferred work hours when suggesting times.
+- If no scheduling action needed, just respond with helpful text.`;
+
+  const response = await callAI(messages, system, 400);
+
+  const actionMatch = response.match(/ACTION:(\{[\s\S]*\})/);
+  let action: SchedulerAction | undefined;
+  let text = response;
+
+  if (actionMatch) {
+    try {
+      action = JSON.parse(actionMatch[1]) as SchedulerAction;
+      text = response.replace(/ACTION:\{[\s\S]*\}/, "").trim();
+    } catch {
+      action = undefined;
+    }
+  }
+
+  return { text: text || "I'm here to help schedule your day!", action };
+}
+
 export async function generateOnboardingSummary(answers: Record<string, unknown>): Promise<string> {
   const system = `You are RAI. Generate a warm, personalized 3-sentence profile summary for a new user based on their onboarding answers. Be encouraging and specific.`;
 

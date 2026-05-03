@@ -1,12 +1,9 @@
 import { Router, Request, Response } from "express";
-import Anthropic from "@anthropic-ai/sdk";
 
 const router = Router();
 
-const anthropic = new Anthropic({
-  baseURL: process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL,
-  apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
-});
+const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
+const GROQ_MODEL = "llama-3.3-70b-versatile";
 
 router.post("/chat", async (req: Request, res: Response) => {
   try {
@@ -21,20 +18,49 @@ router.post("/chat", async (req: Request, res: Response) => {
       return;
     }
 
+    const apiKey = process.env.GROQ_API_KEY;
+    if (!apiKey) {
+      req.log?.error("GROQ_API_KEY not configured");
+      res.status(500).json({ error: "AI not configured", content: "" });
+      return;
+    }
+
     const validMessages = messages.filter(
       (m) => m.role === "user" || m.role === "assistant"
-    ) as Array<{ role: "user" | "assistant"; content: string }>;
+    );
 
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: maxTokens,
-      ...(system ? { system } : {}),
-      messages: validMessages,
+    const groqMessages: Array<{ role: string; content: string }> = [];
+    if (system) {
+      groqMessages.push({ role: "system", content: system });
+    }
+    groqMessages.push(...validMessages);
+
+    const groqRes = await fetch(GROQ_API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: GROQ_MODEL,
+        messages: groqMessages,
+        max_tokens: maxTokens,
+        temperature: 0.7,
+      }),
     });
 
-    const content =
-      response.content[0]?.type === "text" ? response.content[0].text : "";
+    if (!groqRes.ok) {
+      const errText = await groqRes.text();
+      req.log?.error({ status: groqRes.status, body: errText }, "Groq API error");
+      res.status(500).json({ error: "AI request failed", content: "" });
+      return;
+    }
 
+    const data = await groqRes.json() as {
+      choices: Array<{ message: { content: string } }>;
+    };
+
+    const content = data.choices?.[0]?.message?.content ?? "";
     res.json({ content });
   } catch (err) {
     req.log?.error({ err }, "AI chat error");

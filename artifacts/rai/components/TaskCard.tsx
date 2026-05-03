@@ -85,6 +85,27 @@ export function TaskCard({ task, onComplete, onEdit, onDelete, showDate }: Props
               </Text>
             </View>
           )}
+          {task.deadline && !task.completed && (() => {
+            const dl = new Date(task.deadline);
+            const now = new Date();
+            const diffDays = Math.ceil((dl.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+            const isOverdue = diffDays < 0;
+            const isSoon = diffDays <= 2;
+            const label = isOverdue
+              ? `${Math.abs(diffDays)}d overdue`
+              : diffDays === 0
+              ? "Due today"
+              : diffDays === 1
+              ? "Due tomorrow"
+              : `Due ${dl.toLocaleDateString("en", { month: "short", day: "numeric" })}`;
+            const chipColor = isOverdue ? "#EF4444" : isSoon ? "#F97316" : colors.mutedForeground;
+            return (
+              <View style={[styles.metaChip, { backgroundColor: chipColor + "22" }]}>
+                <Ionicons name="flag-outline" size={10} color={chipColor} />
+                <Text style={[styles.metaText, { color: chipColor }]}>{label}</Text>
+              </View>
+            );
+          })()}
           <View style={[styles.metaChip, { backgroundColor: PRIORITY_COLORS[task.priority] + "22" }]}>
             <Text style={[styles.metaText, { color: PRIORITY_COLORS[task.priority] }]}>
               {PRIORITY_LABELS[task.priority]}
