@@ -1,78 +1,69 @@
 import { useEffect } from "react";
-import { View, StyleSheet, Text } from "react-native";
+import { StyleSheet, Text, Image } from "react-native";
 import { router } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withRepeat, withTiming, Easing } from "react-native-reanimated";
-import Svg, { Circle } from "react-native-svg";
 
 import { useApp } from "@/contexts/AppContext";
 
 export default function SplashScreen() {
-  const { profile, isLoaded } = useApp();
+  const { profile, isLoaded, isAuthReady, firebaseUser } = useApp();
 
   const scale = useSharedValue(0.8);
   const opacity = useSharedValue(0);
-  const rotate = useSharedValue(0);
+  const glow = useSharedValue(0);
 
   const animStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
     opacity: opacity.value,
   }));
 
-  const orbitStyle = useAnimatedStyle(() => ({
-    transform: [{ rotate: `${rotate.value}deg` }],
+  const glowStyle = useAnimatedStyle(() => ({
+    opacity: 0.35 + glow.value * 0.35,
   }));
 
   useEffect(() => {
     scale.value = withSpring(1, { damping: 12 });
-    opacity.value = withTiming(1, { duration: 600 });
-    rotate.value = withRepeat(
-      withTiming(360, { duration: 3000, easing: Easing.linear }),
+    opacity.value = withTiming(1, { duration: 700 });
+    glow.value = withRepeat(
+      withTiming(1, { duration: 1800, easing: Easing.inOut(Easing.ease) }),
       -1,
-      false
+      true
     );
   }, []);
 
   useEffect(() => {
-    if (!isLoaded) return;
+    if (!isAuthReady) return;
     const timer = setTimeout(() => {
-      if (!profile.onboardingComplete) {
+      if (!firebaseUser) {
+        router.replace("/auth");
+      } else if (!profile.onboardingComplete) {
         router.replace("/onboarding");
       } else {
         router.replace("/(tabs)/home");
       }
-    }, 2200);
+    }, 2400);
     return () => clearTimeout(timer);
-  }, [isLoaded, profile.onboardingComplete]);
+  }, [isAuthReady, isLoaded, firebaseUser, profile.onboardingComplete]);
 
   return (
-    <LinearGradient
-      colors={["#0A0A0F", "#0D0B1A", "#130A28"]}
-      style={styles.container}
-    >
-      <Animated.View style={[styles.logoContainer, animStyle]}>
-        <View style={styles.atomContainer}>
-          <View style={styles.atomCore} />
-          <Animated.View style={[styles.orbitRing, styles.orbit1, orbitStyle]}>
-            <View style={styles.electron} />
-          </Animated.View>
-          <Animated.View style={[styles.orbitRing, styles.orbit2, { transform: [{ rotate: "60deg" }] }]}>
-            <View style={styles.electron} />
-          </Animated.View>
-          <Animated.View style={[styles.orbitRing, styles.orbit3, { transform: [{ rotate: "120deg" }] }]}>
-            <View style={styles.electron} />
-          </Animated.View>
-        </View>
-
+    <LinearGradient colors={["#0A0A0F", "#0D0B1A", "#130A28"]} style={styles.container}>
+      <Animated.View style={[styles.logoWrap, animStyle]}>
+        <Animated.View style={[styles.glow, glowStyle]} />
+        <Image
+          source={require("@/assets/images/icon.png")}
+          style={styles.logo}
+          resizeMode="contain"
+        />
         <Text style={styles.logoText}>RAI</Text>
         <Text style={styles.tagline}>Your AI coach that never lets you quit.</Text>
       </Animated.View>
 
-      <View style={styles.loadingBar}>
-        <Animated.View style={[styles.loadingFill, {
-          width: isLoaded ? "100%" : "60%",
-        }]} />
-      </View>
+      <Animated.View
+        style={[styles.loadingBar, { position: "absolute", bottom: 80 }]}
+      >
+        <Animated.View style={[styles.loadingFill, { width: isAuthReady ? "100%" : "55%" }]} />
+      </Animated.View>
     </LinearGradient>
   );
 }
@@ -82,50 +73,24 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    gap: 40,
   },
-  logoContainer: {
+  logoWrap: {
     alignItems: "center",
-    gap: 20,
+    gap: 18,
   },
-  atomContainer: {
-    width: 120,
-    height: 120,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  atomCore: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: "#8B5CF6",
-    shadowColor: "#8B5CF6",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  orbitRing: {
+  glow: {
     position: "absolute",
-    borderRadius: 100,
-    borderWidth: 1.5,
-    borderColor: "#6366F150",
-    alignItems: "flex-start",
-    justifyContent: "center",
-  },
-  orbit1: { width: 80, height: 80 },
-  orbit2: { width: 100, height: 60 },
-  orbit3: { width: 60, height: 100 },
-  electron: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 220,
+    height: 220,
+    borderRadius: 110,
     backgroundColor: "#6366F1",
-    marginLeft: -4,
-    shadowColor: "#6366F1",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 1,
-    shadowRadius: 6,
+    top: -35,
+    zIndex: -1,
+  },
+  logo: {
+    width: 160,
+    height: 160,
+    borderRadius: 80,
   },
   logoText: {
     fontSize: 48,
@@ -146,8 +111,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#1E1E2E",
     borderRadius: 2,
     overflow: "hidden",
-    position: "absolute",
-    bottom: 80,
   },
   loadingFill: {
     height: "100%",

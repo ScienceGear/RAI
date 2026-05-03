@@ -1,23 +1,20 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { User } from "firebase/auth";
 
 import { Task, UserProfile, Goal, DiaryEntry, MoodLog, FocusSession, Achievement, Squad, ActivityFeedItem, DangerZoneProfile } from "@/types";
 import { getItem, setItem, KEYS } from "@/lib/storage";
 import { getDefaultEnergyProfile, autoScheduleTask } from "@/lib/scheduler";
 import { categorizeTaskLocal } from "@/lib/categorizer";
 import { calculateTaskXP, levelFromXP, calculateRaiScore, DEFAULT_ACHIEVEMENTS } from "@/lib/xp";
-import { getOrCreateFirebaseUserId, firestoreSet, firestoreGet, firestoreSetAll, firestoreGetAll } from "@/lib/firebase";
+import { firestoreSet, firestoreGetAll, firestoreSetAll } from "@/lib/firebase";
+import { listenToAuthState, signOut as authSignOut } from "@/lib/auth";
 import { scheduleTaskReminder, sendInstantNotification } from "@/lib/notifications";
 
 const FIRESTORE_KEYS = ["profile", "tasks", "goals", "diary", "moodLogs", "focusSessions", "achievements", "activityFeed"];
 
-function genId(): string {
-  return Date.now().toString() + Math.random().toString(36).substr(2, 9);
-}
-
-function todayStr(): string {
-  return new Date().toISOString().split("T")[0];
-}
+function genId() { return Date.now().toString() + Math.random().toString(36).substr(2, 9); }
+function todayStr() { return new Date().toISOString().split("T")[0]; }
 
 interface AppContextType {
   profile: UserProfile;
@@ -32,6 +29,8 @@ interface AppContextType {
   dangerZone: DangerZoneProfile;
   todayFocusScore: number;
   isLoaded: boolean;
+  isAuthReady: boolean;
+  firebaseUser: User | null;
   firebaseUserId: string | null;
 
   updateProfile: (updates: Partial<UserProfile>) => Promise<void>;
@@ -49,6 +48,7 @@ interface AppContextType {
   unlockAchievement: (id: string) => Promise<void>;
   addXP: (amount: number) => Promise<void>;
   resetOnboarding: () => Promise<void>;
+  signOut: () => Promise<void>;
 }
 
 const defaultDangerZone: DangerZoneProfile = {
@@ -112,108 +112,101 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [activityFeed, setActivityFeed] = useState<ActivityFeedItem[]>([]);
   const [dangerZone] = useState<DangerZoneProfile>(defaultDangerZone);
   const [isLoaded, setIsLoaded] = useState(false);
-  const [firebaseUserId, setFirebaseUserId] = useState<string | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
 
+  // Listen to Firebase auth state changes
   useEffect(() => {
-    loadAll();
+    const unsubscribe = listenToAuthState(async (user) => {
+      setFirebaseUser(user);
+      setIsAuthReady(true);
+      if (user) {
+        await loadUserData(user.uid, user.email ?? "");
+      } else {
+        // Not signed in — reset to defaults (keep local data for offline preview)
+        await loadLocalData();
+      }
+    });
+    return unsubscribe;
   }, []);
-
-  async function loadAll() {
-    // Sign into Firebase anonymously — always
-    const fbUid = await getOrCreateFirebaseUserId();
-    setFirebaseUserId(fbUid);
-
-    if (fbUid) {
-      // Try to load everything from Firestore first (cloud is source of truth)
-      const cloud = await firestoreGetAll(fbUid, FIRESTORE_KEYS);
-
-      const p = (cloud["profile"] as UserProfile | null) ?? (await getItem<UserProfile>(KEYS.USER_PROFILE));
-      const t = (cloud["tasks"] as Task[] | null) ?? (await getItem<Task[]>(KEYS.TASKS)) ?? [];
-      const g = (cloud["goals"] as Goal[] | null) ?? (await getItem<Goal[]>(KEYS.GOALS)) ?? [];
-      const d = (cloud["diary"] as DiaryEntry[] | null) ?? (await getItem<DiaryEntry[]>(KEYS.DIARY)) ?? [];
-      const m = (cloud["moodLogs"] as MoodLog[] | null) ?? (await getItem<MoodLog[]>(KEYS.MOOD_LOGS)) ?? [];
-      const fs = (cloud["focusSessions"] as FocusSession[] | null) ?? (await getItem<FocusSession[]>(KEYS.FOCUS_SESSIONS)) ?? [];
-      const ach = (cloud["achievements"] as Achievement[] | null) ?? (await getItem<Achievement[]>(KEYS.ACHIEVEMENTS)) ?? DEFAULT_ACHIEVEMENTS;
-      const af = (cloud["activityFeed"] as ActivityFeedItem[] | null) ?? (await getItem<ActivityFeedItem[]>(KEYS.ACTIVITY_FEED)) ?? [];
-      const sq = await getItem<Squad>(KEYS.SQUAD);
-
-      const updatedProfile = applyStreak(p ?? defaultProfile);
-
-      setProfile(updatedProfile);
-      setTasks(t);
-      setGoals(g);
-      setDiary(d);
-      setMoodLogs(m);
-      setFocusSessions(fs);
-      setAchievements(ach.length > 0 ? ach : DEFAULT_ACHIEVEMENTS);
-      setSquad(sq);
-      setActivityFeed(af);
-
-      // Persist locally and sync streak update back to Firestore
-      await setItem(KEYS.USER_PROFILE, updatedProfile);
-      firestoreSet(fbUid, "profile", updatedProfile);
-    } else {
-      // Offline fallback: load from local storage only
-      const [p, t, g, d, m, fs, ach, sq, af] = await Promise.all([
-        getItem<UserProfile>(KEYS.USER_PROFILE),
-        getItem<Task[]>(KEYS.TASKS),
-        getItem<Goal[]>(KEYS.GOALS),
-        getItem<DiaryEntry[]>(KEYS.DIARY),
-        getItem<MoodLog[]>(KEYS.MOOD_LOGS),
-        getItem<FocusSession[]>(KEYS.FOCUS_SESSIONS),
-        getItem<Achievement[]>(KEYS.ACHIEVEMENTS),
-        getItem<Squad>(KEYS.SQUAD),
-        getItem<ActivityFeedItem[]>(KEYS.ACTIVITY_FEED),
-      ]);
-      const updatedProfile = applyStreak(p ?? defaultProfile);
-      setProfile(updatedProfile);
-      await setItem(KEYS.USER_PROFILE, updatedProfile);
-      setTasks(t ?? []);
-      setGoals(g ?? []);
-      setDiary(d ?? []);
-      setMoodLogs(m ?? []);
-      setFocusSessions(fs ?? []);
-      setAchievements(ach ?? DEFAULT_ACHIEVEMENTS);
-      setSquad(sq);
-      setActivityFeed(af ?? []);
-    }
-
-    setIsLoaded(true);
-  }
 
   function applyStreak(p: UserProfile): UserProfile {
     const today = todayStr();
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toISOString().split("T")[0];
+    const yStr = yesterday.toISOString().split("T")[0];
     if (p.lastActiveDate === today) return p;
-    const newStreak = p.lastActiveDate === yesterdayStr ? p.streak + 1 : 0;
-    return {
-      ...p,
-      streak: newStreak,
-      longestStreak: Math.max(p.longestStreak ?? 0, newStreak),
-      lastActiveDate: today,
-    };
+    const newStreak = p.lastActiveDate === yStr ? p.streak + 1 : 0;
+    return { ...p, streak: newStreak, longestStreak: Math.max(p.longestStreak ?? 0, newStreak), lastActiveDate: today };
   }
 
-  // Dual-write helper: local + Firestore
-  const persist = useCallback(async (key: string, localKey: string, data: unknown) => {
-    await setItem(localKey, data);
-    if (firebaseUserId) firestoreSet(firebaseUserId, key, data);
-  }, [firebaseUserId]);
+  async function loadUserData(uid: string, email: string) {
+    setIsLoaded(false);
+    // Load from Firestore (source of truth) with local fallback
+    const cloud = await firestoreGetAll(uid, FIRESTORE_KEYS);
+
+    const p = (cloud["profile"] as UserProfile | null) ?? (await getItem<UserProfile>(KEYS.USER_PROFILE));
+    const t = (cloud["tasks"] as Task[] | null) ?? (await getItem<Task[]>(KEYS.TASKS)) ?? [];
+    const g = (cloud["goals"] as Goal[] | null) ?? (await getItem<Goal[]>(KEYS.GOALS)) ?? [];
+    const d = (cloud["diary"] as DiaryEntry[] | null) ?? (await getItem<DiaryEntry[]>(KEYS.DIARY)) ?? [];
+    const m = (cloud["moodLogs"] as MoodLog[] | null) ?? (await getItem<MoodLog[]>(KEYS.MOOD_LOGS)) ?? [];
+    const fs = (cloud["focusSessions"] as FocusSession[] | null) ?? (await getItem<FocusSession[]>(KEYS.FOCUS_SESSIONS)) ?? [];
+    const ach = (cloud["achievements"] as Achievement[] | null) ?? (await getItem<Achievement[]>(KEYS.ACHIEVEMENTS));
+    const af = (cloud["activityFeed"] as ActivityFeedItem[] | null) ?? (await getItem<ActivityFeedItem[]>(KEYS.ACTIVITY_FEED)) ?? [];
+
+    const base = p ?? { ...defaultProfile, id: uid };
+    const profileWithEmail = { ...base, id: uid, email: email || base.email };
+    const updatedProfile = applyStreak(profileWithEmail);
+
+    setProfile(updatedProfile);
+    setTasks(t);
+    setGoals(g);
+    setDiary(d);
+    setMoodLogs(m);
+    setFocusSessions(fs);
+    setAchievements((ach && ach.length > 0) ? ach : DEFAULT_ACHIEVEMENTS);
+    setActivityFeed(af);
+
+    // Persist streak update
+    await setItem(KEYS.USER_PROFILE, updatedProfile);
+    firestoreSet(uid, "profile", updatedProfile);
+
+    setIsLoaded(true);
+  }
+
+  async function loadLocalData() {
+    const [p, t, g] = await Promise.all([
+      getItem<UserProfile>(KEYS.USER_PROFILE),
+      getItem<Task[]>(KEYS.TASKS),
+      getItem<Goal[]>(KEYS.GOALS),
+    ]);
+    if (p) setProfile(applyStreak(p));
+    if (t) setTasks(t);
+    if (g) setGoals(g);
+    setIsLoaded(true);
+  }
+
+  const uid = firebaseUser?.uid ?? null;
+
+  const syncProfile = useCallback((p: UserProfile) => {
+    setItem(KEYS.USER_PROFILE, p);
+    if (uid) firestoreSet(uid, "profile", p);
+  }, [uid]);
+
+  const syncTasks = useCallback((t: Task[]) => {
+    setItem(KEYS.TASKS, t);
+    if (uid) firestoreSet(uid, "tasks", t);
+  }, [uid]);
 
   const updateProfile = useCallback(async (updates: Partial<UserProfile>) => {
     setProfile((prev) => {
       const next = { ...prev, ...updates };
-      setItem(KEYS.USER_PROFILE, next);
-      if (firebaseUserId) firestoreSet(firebaseUserId, "profile", next);
+      syncProfile(next);
       return next;
     });
-  }, [firebaseUserId]);
+  }, [syncProfile]);
 
-  const addTask = useCallback(async (
-    taskData: Omit<Task, "id" | "createdAt" | "updatedAt" | "sessions" | "skippedCount" | "categoryOverridden" | "isQuickTask" | "completed" | "dependencies">
-  ): Promise<Task> => {
+  const addTask = useCallback(async (taskData: Omit<Task, "id" | "createdAt" | "updatedAt" | "sessions" | "skippedCount" | "categoryOverridden" | "isQuickTask" | "completed" | "dependencies">): Promise<Task> => {
     const category = taskData.categoryPrimary || categorizeTaskLocal(taskData.title);
     const newTask: Task = {
       ...taskData,
@@ -228,80 +221,49 @@ export function AppProvider({ children }: { children: ReactNode }) {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-
-    if (newTask.scheduledDate && newTask.scheduledTime) {
-      scheduleTaskReminder(newTask);
-    }
-
-    setTasks((prev) => {
-      const next = [newTask, ...prev];
-      setItem(KEYS.TASKS, next);
-      if (firebaseUserId) firestoreSet(firebaseUserId, "tasks", next);
-      return next;
-    });
-
+    if (newTask.scheduledDate && newTask.scheduledTime) scheduleTaskReminder(newTask);
+    setTasks((prev) => { const next = [newTask, ...prev]; syncTasks(next); return next; });
     return newTask;
-  }, [firebaseUserId]);
+  }, [syncTasks]);
 
   const updateTask = useCallback(async (id: string, updates: Partial<Task>) => {
     setTasks((prev) => {
-      const next = prev.map((t) =>
-        t.id === id ? { ...t, ...updates, updatedAt: new Date().toISOString() } : t
-      );
-      setItem(KEYS.TASKS, next);
-      if (firebaseUserId) firestoreSet(firebaseUserId, "tasks", next);
+      const next = prev.map((t) => t.id === id ? { ...t, ...updates, updatedAt: new Date().toISOString() } : t);
+      syncTasks(next);
       return next;
     });
-  }, [firebaseUserId]);
+  }, [syncTasks]);
 
   const deleteTask = useCallback(async (id: string) => {
-    setTasks((prev) => {
-      const next = prev.filter((t) => t.id !== id);
-      setItem(KEYS.TASKS, next);
-      if (firebaseUserId) firestoreSet(firebaseUserId, "tasks", next);
-      return next;
-    });
-  }, [firebaseUserId]);
+    setTasks((prev) => { const next = prev.filter((t) => t.id !== id); syncTasks(next); return next; });
+  }, [syncTasks]);
 
   const completeTask = useCallback(async (id: string) => {
     setTasks((prevTasks) => {
       const task = prevTasks.find((t) => t.id === id);
       if (!task || task.completed) return prevTasks;
-
       const xpEarned = calculateTaskXP(task);
       const next = prevTasks.map((t) =>
-        t.id === id
-          ? { ...t, completed: true, completedAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
-          : t
+        t.id === id ? { ...t, completed: true, completedAt: new Date().toISOString(), updatedAt: new Date().toISOString() } : t
       );
-      setItem(KEYS.TASKS, next);
-      if (firebaseUserId) firestoreSet(firebaseUserId, "tasks", next);
+      syncTasks(next);
 
-      // Update profile XP + score
       setProfile((prev) => {
         const newXP = prev.xp + xpEarned;
         const newLevel = levelFromXP(newXP);
         const didLevelUp = newLevel > prev.level;
-        const completedCount = next.filter((t) => t.completed).length;
         const newScore = Math.min(1000, calculateRaiScore({
-          streak: prev.streak,
-          tasksCompleted: completedCount,
-          focusMinutes: 0,
-          planningRate: 0.8,
-          squadMembers: 0,
+          streak: prev.streak, tasksCompleted: next.filter((t) => t.completed).length,
+          focusMinutes: 0, planningRate: 0.8, squadMembers: 0,
         }));
         const updated = { ...prev, xp: newXP, level: newLevel, raiScore: newScore, lastActiveDate: todayStr() };
-        setItem(KEYS.USER_PROFILE, updated);
-        if (firebaseUserId) firestoreSet(firebaseUserId, "profile", updated);
+        syncProfile(updated);
         if (didLevelUp) sendInstantNotification("🎉 Level Up!", `You reached Level ${newLevel}!`);
         return updated;
       });
 
-      // Log activity
       const activity: ActivityFeedItem = {
-        id: genId(),
-        userId: "",
-        userName: "",
+        id: genId(), userId: uid ?? "", userName: profile.firstName,
         actionType: "task_complete",
         actionData: { taskTitle: task.title, xpEarned },
         createdAt: new Date().toISOString(),
@@ -309,13 +271,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setActivityFeed((prev) => {
         const updated = [activity, ...prev].slice(0, 50);
         setItem(KEYS.ACTIVITY_FEED, updated);
-        if (firebaseUserId) firestoreSet(firebaseUserId, "activityFeed", updated);
+        if (uid) firestoreSet(uid, "activityFeed", updated);
         return updated;
       });
 
       return next;
     });
-  }, [firebaseUserId]);
+  }, [uid, profile.firstName, syncTasks, syncProfile]);
 
   const scheduleTask = useCallback(async (taskId: string) => {
     setTasks((prev) => {
@@ -324,72 +286,69 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const result = autoScheduleTask(task, prev, profile);
       if (!result) return prev;
       const next = prev.map((t) =>
-        t.id === taskId
-          ? { ...t, scheduledDate: result.scheduledDate, scheduledTime: result.scheduledTime, schedulerRationale: result.rationale, updatedAt: new Date().toISOString() }
-          : t
+        t.id === taskId ? { ...t, scheduledDate: result.scheduledDate, scheduledTime: result.scheduledTime, schedulerRationale: result.rationale, updatedAt: new Date().toISOString() } : t
       );
-      setItem(KEYS.TASKS, next);
-      if (firebaseUserId) firestoreSet(firebaseUserId, "tasks", next);
+      syncTasks(next);
       scheduleTaskReminder({ ...task, scheduledDate: result.scheduledDate, scheduledTime: result.scheduledTime });
       return next;
     });
-  }, [profile, firebaseUserId]);
+  }, [profile, syncTasks]);
 
   const addGoal = useCallback(async (goalData: Omit<Goal, "id" | "createdAt" | "updatedAt" | "progress">) => {
     const newGoal: Goal = { ...goalData, id: genId(), progress: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     setGoals((prev) => {
       const next = [...prev, newGoal];
       setItem(KEYS.GOALS, next);
-      if (firebaseUserId) firestoreSet(firebaseUserId, "goals", next);
+      if (uid) firestoreSet(uid, "goals", next);
       return next;
     });
-  }, [firebaseUserId]);
+  }, [uid]);
 
   const updateGoal = useCallback(async (id: string, updates: Partial<Goal>) => {
     setGoals((prev) => {
       const next = prev.map((g) => g.id === id ? { ...g, ...updates, updatedAt: new Date().toISOString() } : g);
       setItem(KEYS.GOALS, next);
-      if (firebaseUserId) firestoreSet(firebaseUserId, "goals", next);
+      if (uid) firestoreSet(uid, "goals", next);
       return next;
     });
-  }, [firebaseUserId]);
+  }, [uid]);
 
   const addDiaryEntry = useCallback(async (entry: DiaryEntry) => {
     setDiary((prev) => {
       const next = [entry, ...prev.filter((d) => d.id !== entry.id)];
       setItem(KEYS.DIARY, next);
-      if (firebaseUserId) firestoreSet(firebaseUserId, "diary", next);
+      if (uid) firestoreSet(uid, "diary", next);
       return next;
     });
     addXP(25);
-  }, [firebaseUserId]);
+  }, [uid]);
 
   const updateDiaryEntry = useCallback(async (id: string, updates: Partial<DiaryEntry>) => {
     setDiary((prev) => {
       const next = prev.map((d) => d.id === id ? { ...d, ...updates } : d);
       setItem(KEYS.DIARY, next);
-      if (firebaseUserId) firestoreSet(firebaseUserId, "diary", next);
+      if (uid) firestoreSet(uid, "diary", next);
       return next;
     });
-  }, [firebaseUserId]);
+  }, [uid]);
 
   const logMood = useCallback(async (mood: number, tags: string[]) => {
     const log: MoodLog = { id: genId(), mood: mood as 1 | 2 | 3 | 4 | 5, tags, timestamp: new Date().toISOString() };
     setMoodLogs((prev) => {
       const next = [log, ...prev];
       setItem(KEYS.MOOD_LOGS, next);
-      if (firebaseUserId) firestoreSet(firebaseUserId, "moodLogs", next);
+      if (uid) firestoreSet(uid, "moodLogs", next);
       return next;
     });
     addXP(10);
-  }, [firebaseUserId]);
+  }, [uid]);
 
   const addFocusSession = useCallback(async (session: Omit<FocusSession, "id">) => {
     const newSession: FocusSession = { ...session, id: genId() };
     setFocusSessions((prev) => {
       const next = [newSession, ...prev];
       setItem(KEYS.FOCUS_SESSIONS, next);
-      if (firebaseUserId) firestoreSet(firebaseUserId, "focusSessions", next);
+      if (uid) firestoreSet(uid, "focusSessions", next);
       return next;
     });
     if (session.completed) {
@@ -397,7 +356,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addXP(xp);
       sendInstantNotification("🎯 Focus complete!", `${session.taskTitle} · +${xp} XP`);
     }
-  }, [firebaseUserId]);
+  }, [uid]);
 
   const unlockAchievement = useCallback(async (id: string) => {
     setAchievements((prev) => {
@@ -405,42 +364,46 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!ach || ach.unlocked) return prev;
       const next = prev.map((a) => a.id === id ? { ...a, unlocked: true, unlockedAt: new Date().toISOString() } : a);
       setItem(KEYS.ACHIEVEMENTS, next);
-      if (firebaseUserId) firestoreSet(firebaseUserId, "achievements", next);
+      if (uid) firestoreSet(uid, "achievements", next);
       sendInstantNotification("🏆 Achievement!", `${ach.name} unlocked`);
       addXP(ach.xpReward);
       return next;
     });
-  }, [firebaseUserId]);
+  }, [uid]);
 
   const addXP = useCallback(async (amount: number) => {
     setProfile((prev) => {
       const newXP = prev.xp + amount;
       const newLevel = levelFromXP(newXP);
       const next = { ...prev, xp: newXP, level: newLevel };
-      setItem(KEYS.USER_PROFILE, next);
-      if (firebaseUserId) firestoreSet(firebaseUserId, "profile", next);
+      syncProfile(next);
       return next;
     });
-  }, [firebaseUserId]);
+  }, [syncProfile]);
 
   const resetOnboarding = useCallback(async () => {
     await AsyncStorage.clear();
-    const fresh = { ...defaultProfile, id: genId() };
+    const fresh = { ...defaultProfile, id: uid ?? genId() };
     setProfile(fresh);
     setTasks([]); setGoals([]); setDiary([]); setMoodLogs([]);
-    setFocusSessions([]); setAchievements(DEFAULT_ACHIEVEMENTS); setSquad(null);
-    if (firebaseUserId) {
-      firestoreSetAll(firebaseUserId, {
-        profile: fresh, tasks: [], goals: [], diary: [], moodLogs: [],
-        focusSessions: [], achievements: DEFAULT_ACHIEVEMENTS, activityFeed: [],
-      });
-    }
-  }, [firebaseUserId]);
+    setFocusSessions([]); setAchievements(DEFAULT_ACHIEVEMENTS);
+    if (uid) firestoreSetAll(uid, {
+      profile: fresh, tasks: [], goals: [], diary: [], moodLogs: [],
+      focusSessions: [], achievements: DEFAULT_ACHIEVEMENTS, activityFeed: [],
+    });
+  }, [uid]);
 
-  const todayStr2 = todayStr();
-  const todayTasks = tasks.filter((t) => t.scheduledDate === todayStr2);
+  const signOut = useCallback(async () => {
+    await authSignOut();
+    setFirebaseUser(null);
+    setProfile(defaultProfile);
+    setTasks([]); setGoals([]); setDiary([]);
+  }, []);
+
+  const today = todayStr();
+  const todayTasks = tasks.filter((t) => t.scheduledDate === today);
   const completedToday = todayTasks.filter((t) => t.completed).length;
-  const todayFocusMinutes = focusSessions.filter((s) => s.startedAt.startsWith(todayStr2)).reduce((a, s) => a + s.completedMinutes, 0);
+  const todayFocusMinutes = focusSessions.filter((s) => s.startedAt.startsWith(today)).reduce((a, s) => a + s.completedMinutes, 0);
   const todayFocusScore = Math.min(100, Math.round(
     (todayTasks.length > 0 ? (completedToday / Math.max(todayTasks.length, 1)) * 60 : 30) +
     Math.min(40, todayFocusMinutes / 2)
@@ -449,10 +412,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   return (
     <AppContext.Provider value={{
       profile, tasks, goals, diary, moodLogs, focusSessions, achievements, squad, activityFeed,
-      dangerZone, todayFocusScore, isLoaded, firebaseUserId,
+      dangerZone, todayFocusScore, isLoaded, isAuthReady, firebaseUser, firebaseUserId: uid,
       updateProfile, addTask, updateTask, deleteTask, completeTask, scheduleTask,
       addGoal, updateGoal, addDiaryEntry, updateDiaryEntry, logMood, addFocusSession,
-      unlockAchievement, addXP, resetOnboarding,
+      unlockAchievement, addXP, resetOnboarding, signOut,
     }}>
       {children}
     </AppContext.Provider>

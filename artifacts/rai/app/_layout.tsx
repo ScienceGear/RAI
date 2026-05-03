@@ -8,30 +8,47 @@ import {
 import { Ionicons, Feather } from "@expo/vector-icons";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
+import * as Linking from "expo-linking";
+import * as WebBrowser from "expo-web-browser";
 import React, { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { useColorScheme } from "react-native";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AppProvider } from "@/contexts/AppContext";
+import { handleEmailLink } from "@/lib/auth";
 
 SplashScreen.preventAutoHideAsync();
+WebBrowser.maybeCompleteAuthSession();
 
 function RootLayoutNav() {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
+  // Handle incoming deep links for magic link sign-in
+  useEffect(() => {
+    const handleUrl = async ({ url }: { url: string }) => {
+      try {
+        await handleEmailLink(url);
+      } catch {}
+    };
+
+    const sub = Linking.addEventListener("url", handleUrl);
+    Linking.getInitialURL().then((url) => {
+      if (url) handleUrl({ url });
+    });
+
+    return () => sub.remove();
+  }, []);
 
   return (
     <Stack
       screenOptions={{
         headerShown: false,
-        contentStyle: { backgroundColor: isDark ? "#0A0A0F" : "#F8F9FF" },
+        contentStyle: { backgroundColor: "#0A0A0F" },
         animation: "slide_from_right",
       }}
     >
       <Stack.Screen name="index" options={{ animation: "none" }} />
+      <Stack.Screen name="auth/index" options={{ animation: "fade", gestureEnabled: false }} />
       <Stack.Screen name="onboarding/index" options={{ animation: "fade", gestureEnabled: false }} />
       <Stack.Screen name="onboarding/permissions" options={{ animation: "slide_from_right", gestureEnabled: false }} />
       <Stack.Screen name="(tabs)" options={{ animation: "fade" }} />
