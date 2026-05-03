@@ -9,9 +9,8 @@ import * as Haptics from "expo-haptics";
 import { Task, TaskCategory, TaskPriority, TaskDifficulty } from "@/types";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/contexts/AppContext";
-import { categorizeTaskLocal, parseDurationFromText, parsePriorityFromText, parseDeadlineFromText } from "@/lib/categorizer";
-import { CATEGORIES } from "@/constants/categories";
-import { getCategoryColor } from "@/constants/categories";
+import { categorizeTaskLocal, parseDurationFromText, parsePriorityFromText } from "@/lib/categorizer";
+import { CATEGORIES, getCategoryColor } from "@/constants/categories";
 
 interface Props {
   visible: boolean;
@@ -30,6 +29,34 @@ const PRIORITY_OPTIONS: { value: TaskPriority; label: string; color: string }[] 
 
 const QUICK_DURATIONS = [15, 30, 60, 90, 120];
 
+// Quick deadline presets
+const DEADLINE_PRESETS = [
+  { label: "Today", days: 0 },
+  { label: "Tomorrow", days: 1 },
+  { label: "In 3 days", days: 3 },
+  { label: "Next week", days: 7 },
+  { label: "In 2 weeks", days: 14 },
+  { label: "In a month", days: 30 },
+];
+
+function addDays(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().split("T")[0]; // YYYY-MM-DD
+}
+
+function formatDeadlineDisplay(iso: string): string {
+  const d = new Date(iso + "T00:00:00");
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const diff = Math.round((d.getTime() - today.getTime()) / 86400000);
+  if (diff === 0) return "Today";
+  if (diff === 1) return "Tomorrow";
+  if (diff < 0) return `${Math.abs(diff)}d overdue`;
+  if (diff < 7) return `In ${diff} days`;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
 export function TaskSheet({ visible, task, onClose, onSave, prefillTime }: Props) {
   const colors = useColors();
   const { addTask, updateTask, scheduleTask } = useApp();
@@ -39,9 +66,11 @@ export function TaskSheet({ visible, task, onClose, onSave, prefillTime }: Props
   const [duration, setDuration] = useState(task?.estimatedMinutes ?? 60);
   const [priority, setPriority] = useState<TaskPriority>(task?.priority ?? 2);
   const [difficulty, setDifficulty] = useState<TaskDifficulty>(task?.difficulty ?? 3);
+  const [deadline, setDeadline] = useState<string | undefined>(task?.deadline);
   const [moodSensitive, setMoodSensitive] = useState(task?.moodSensitive ?? false);
   const [notes, setNotes] = useState(task?.notes ?? "");
   const [isSaving, setIsSaving] = useState(false);
+  const [showDeadlinePicker, setShowDeadlinePicker] = useState(false);
   const slideAnim = useRef(new Animated.Value(400)).current;
   const parseTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -60,6 +89,7 @@ export function TaskSheet({ visible, task, onClose, onSave, prefillTime }: Props
       setDuration(task.estimatedMinutes);
       setPriority(task.priority);
       setDifficulty(task.difficulty);
+      setDeadline(task.deadline);
       setMoodSensitive(task.moodSensitive);
       setNotes(task.notes ?? "");
     } else {
@@ -68,9 +98,11 @@ export function TaskSheet({ visible, task, onClose, onSave, prefillTime }: Props
       setDuration(60);
       setPriority(2);
       setDifficulty(3);
+      setDeadline(undefined);
       setMoodSensitive(false);
       setNotes("");
     }
+    setShowDeadlinePicker(false);
   }, [task, visible]);
 
   const handleTitleChange = (text: string) => {
@@ -95,9 +127,12 @@ export function TaskSheet({ visible, task, onClose, onSave, prefillTime }: Props
 
     try {
       if (task) {
-        await updateTask(task.id, { title, categoryPrimary: category, estimatedMinutes: duration, priority, difficulty, moodSensitive, notes });
+        await updateTask(task.id, {
+          title, categoryPrimary: category, estimatedMinutes: duration,
+          priority, difficulty, deadline, moodSensitive, notes,
+        });
         if (andSchedule) await scheduleTask(task.id);
-        onSave?.({ ...task, title, categoryPrimary: category, estimatedMinutes: duration, priority, difficulty, moodSensitive, notes });
+        onSave?.({ ...task, title, categoryPrimary: category, estimatedMinutes: duration, priority, difficulty, deadline, moodSensitive, notes });
       } else {
         const newTask = await addTask({
           title,
@@ -105,6 +140,7 @@ export function TaskSheet({ visible, task, onClose, onSave, prefillTime }: Props
           estimatedMinutes: duration,
           priority,
           difficulty,
+          deadline,
           moodSensitive,
           notes,
           isRecurring: false,
@@ -120,6 +156,8 @@ export function TaskSheet({ visible, task, onClose, onSave, prefillTime }: Props
   };
 
   if (!visible) return null;
+
+  const isDeadlineOverdue = deadline && new Date(deadline + "T00:00:00") < new Date(new Date().toDateString());
 
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
@@ -140,9 +178,11 @@ export function TaskSheet({ visible, task, onClose, onSave, prefillTime }: Props
           <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
             <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
               <View style={styles.form}>
+
+                {/* Title */}
                 <TextInput
                   style={[styles.titleInput, { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.secondary }]}
-                  placeholder="What do you need to do? Try: 'finish report by Friday, 2 hours, urgent'"
+                  placeholder="What do you need to do?"
                   placeholderTextColor={colors.mutedForeground}
                   value={title}
                   onChangeText={handleTitleChange}
@@ -150,6 +190,7 @@ export function TaskSheet({ visible, task, onClose, onSave, prefillTime }: Props
                   autoFocus
                 />
 
+                {/* Category */}
                 <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Category</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryRow}>
                   {Object.keys(CATEGORIES).map((cat) => {
@@ -172,6 +213,7 @@ export function TaskSheet({ visible, task, onClose, onSave, prefillTime }: Props
                   })}
                 </ScrollView>
 
+                {/* Duration */}
                 <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Duration</Text>
                 <View style={styles.durationRow}>
                   {QUICK_DURATIONS.map((d) => (
@@ -190,6 +232,73 @@ export function TaskSheet({ visible, task, onClose, onSave, prefillTime }: Props
                   ))}
                 </View>
 
+                {/* Deadline */}
+                <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Deadline</Text>
+                <TouchableOpacity
+                  onPress={() => setShowDeadlinePicker((p) => !p)}
+                  style={[styles.deadlineBtn, {
+                    backgroundColor: colors.secondary,
+                    borderColor: deadline
+                      ? isDeadlineOverdue ? "#EF4444" : "#6366F1"
+                      : colors.border,
+                    borderWidth: deadline ? 1.5 : 1,
+                  }]}
+                >
+                  <Ionicons
+                    name="calendar-outline"
+                    size={16}
+                    color={deadline ? (isDeadlineOverdue ? "#EF4444" : "#6366F1") : colors.mutedForeground}
+                  />
+                  <Text style={[styles.deadlineBtnText, {
+                    color: deadline
+                      ? isDeadlineOverdue ? "#EF4444" : colors.foreground
+                      : colors.mutedForeground,
+                  }]}>
+                    {deadline ? formatDeadlineDisplay(deadline) : "No deadline"}
+                  </Text>
+                  {deadline && (
+                    <TouchableOpacity
+                      onPress={(e) => { e.stopPropagation(); setDeadline(undefined); setShowDeadlinePicker(false); }}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    >
+                      <Ionicons name="close-circle" size={16} color={colors.mutedForeground} />
+                    </TouchableOpacity>
+                  )}
+                  <Ionicons
+                    name={showDeadlinePicker ? "chevron-up" : "chevron-down"}
+                    size={14}
+                    color={colors.mutedForeground}
+                    style={{ marginLeft: "auto" }}
+                  />
+                </TouchableOpacity>
+
+                {showDeadlinePicker && (
+                  <View style={[styles.deadlineGrid, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
+                    {DEADLINE_PRESETS.map((preset) => {
+                      const val = addDays(preset.days);
+                      const isActive = deadline === val;
+                      return (
+                        <TouchableOpacity
+                          key={preset.label}
+                          onPress={() => { setDeadline(val); setShowDeadlinePicker(false); }}
+                          style={[styles.deadlinePreset, {
+                            backgroundColor: isActive ? "#6366F1" : colors.card,
+                            borderColor: isActive ? "#6366F1" : colors.border,
+                          }]}
+                        >
+                          <Text style={[styles.deadlinePresetText, { color: isActive ? "#FFF" : colors.foreground }]}>
+                            {preset.label}
+                          </Text>
+                          <Text style={[styles.deadlinePresetDate, { color: isActive ? "rgba(255,255,255,0.7)" : colors.mutedForeground }]}>
+                            {new Date(val + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                )}
+
+                {/* Priority */}
                 <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Priority</Text>
                 <View style={styles.priorityRow}>
                   {PRIORITY_OPTIONS.map((p) => (
@@ -208,6 +317,7 @@ export function TaskSheet({ visible, task, onClose, onSave, prefillTime }: Props
                   ))}
                 </View>
 
+                {/* Difficulty */}
                 <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Difficulty</Text>
                 <View style={styles.starRow}>
                   {[1, 2, 3, 4, 5].map((d) => (
@@ -221,6 +331,7 @@ export function TaskSheet({ visible, task, onClose, onSave, prefillTime }: Props
                   ))}
                 </View>
 
+                {/* Mood Sensitive */}
                 <View style={styles.switchRow}>
                   <View style={styles.switchInfo}>
                     <Text style={[styles.switchLabel, { color: colors.foreground }]}>Mood Sensitive</Text>
@@ -234,6 +345,7 @@ export function TaskSheet({ visible, task, onClose, onSave, prefillTime }: Props
                   />
                 </View>
 
+                {/* Notes */}
                 <TextInput
                   style={[styles.notesInput, { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.secondary }]}
                   placeholder="Notes (optional)"
@@ -244,6 +356,7 @@ export function TaskSheet({ visible, task, onClose, onSave, prefillTime }: Props
                   numberOfLines={2}
                 />
 
+                {/* Actions */}
                 <View style={styles.saveRow}>
                   <TouchableOpacity
                     onPress={() => handleSave(false)}
@@ -262,6 +375,7 @@ export function TaskSheet({ visible, task, onClose, onSave, prefillTime }: Props
                     <Text style={[styles.saveBtnText, { color: "#FFFFFF" }]}>Auto-Schedule</Text>
                   </TouchableOpacity>
                 </View>
+
               </View>
             </ScrollView>
           </KeyboardAvoidingView>
@@ -273,7 +387,7 @@ export function TaskSheet({ visible, task, onClose, onSave, prefillTime }: Props
 
 const styles = StyleSheet.create({
   overlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.6)" },
-  sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 16, paddingBottom: 32, maxHeight: "90%" },
+  sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 16, paddingBottom: 32, maxHeight: "92%" },
   handle: { width: 36, height: 4, borderRadius: 2, alignSelf: "center", marginBottom: 16 },
   sheetHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 },
   sheetTitle: { fontSize: 18, fontFamily: "Inter_700Bold" },
@@ -286,6 +400,21 @@ const styles = StyleSheet.create({
   durationRow: { flexDirection: "row", gap: 8 },
   durationBtn: { borderRadius: 8, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 8, alignItems: "center" },
   durationBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  deadlineBtn: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12,
+  },
+  deadlineBtnText: { fontSize: 14, fontFamily: "Inter_500Medium", flex: 1 },
+  deadlineGrid: {
+    borderRadius: 12, borderWidth: 1, padding: 10,
+    flexDirection: "row", flexWrap: "wrap", gap: 8,
+  },
+  deadlinePreset: {
+    borderRadius: 8, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 8,
+    minWidth: "30%", flex: 1,
+  },
+  deadlinePresetText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  deadlinePresetDate: { fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 2 },
   priorityRow: { flexDirection: "row", gap: 8 },
   priorityBtn: { flex: 1, borderRadius: 8, borderWidth: 1, paddingVertical: 8, alignItems: "center" },
   priorityBtnText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
