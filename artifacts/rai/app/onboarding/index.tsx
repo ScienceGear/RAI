@@ -1,8 +1,9 @@
 import React, { useState, useRef } from "react";
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView,
-  Animated, KeyboardAvoidingView, Platform, SafeAreaView,
+  Animated, KeyboardAvoidingView, Platform,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -46,6 +47,7 @@ const MOTIVATION_OPTIONS = [
 
 export default function Onboarding() {
   const colors = useColors();
+  const insets = useSafeAreaInsets();
   const { updateProfile } = useApp();
 
   const [step, setStep] = useState<Step>(0);
@@ -322,10 +324,12 @@ export default function Onboarding() {
     }
   };
 
+  const topPad = insets.top > 0 ? insets.top : (Platform.OS === "web" ? 20 : 44);
+
   return (
     <LinearGradient colors={["#0A0A0F", "#0D0B1A", "#130A28"]} style={{ flex: 1 }}>
-      <SafeAreaView style={{ flex: 1 }}>
-        <View style={styles.header}>
+      <View style={{ flex: 1 }}>
+        <View style={[styles.header, { paddingTop: topPad + 8 }]}>
           {step > 0 && step < 7 && (
             <TouchableOpacity onPress={() => setStep((s) => (s - 1) as Step)}>
               <Ionicons name="arrow-back" size={22} color="#6B7280" />
@@ -344,7 +348,7 @@ export default function Onboarding() {
             </Animated.View>
           </ScrollView>
         </KeyboardAvoidingView>
-      </SafeAreaView>
+      </View>
     </LinearGradient>
   );
 }

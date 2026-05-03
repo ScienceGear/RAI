@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, Platform } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -40,6 +41,8 @@ const PERMISSIONS = [
 export default function Permissions() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const { updateProfile } = useApp();
+  const insets = useSafeAreaInsets();
+  const topPad = insets.top > 0 ? insets.top : (Platform.OS === "web" ? 20 : 44);
 
   const current = PERMISSIONS[currentIndex];
 
@@ -65,8 +68,8 @@ export default function Permissions() {
 
   return (
     <LinearGradient colors={["#0A0A0F", "#0D0B1A", "#130A28"]} style={{ flex: 1 }}>
-      <SafeAreaView style={{ flex: 1 }}>
-        <View style={styles.progressRow}>
+      <View style={{ flex: 1 }}>
+        <View style={[styles.progressRow, { paddingTop: topPad + 8 }]}>
           {PERMISSIONS.map((_, i) => (
             <View
               key={i}
@@ -94,7 +97,7 @@ export default function Permissions() {
             </TouchableOpacity>
           </View>
         </View>
-      </SafeAreaView>
+      </View>
     </LinearGradient>
   );
 }

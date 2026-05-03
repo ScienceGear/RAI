@@ -1,8 +1,9 @@
 import React, { useState, useRef, useCallback } from "react";
 import {
   View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity,
-  KeyboardAvoidingView, Platform, SafeAreaView,
+  KeyboardAvoidingView, Platform,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
@@ -19,6 +20,7 @@ function genId() {
 
 export default function DiaryScreen() {
   const colors = useColors();
+  const insets = useSafeAreaInsets();
   const { profile, diary, addDiaryEntry, updateDiaryEntry, moodLogs, todayFocusScore } = useApp();
 
   const today = new Date().toISOString().split("T")[0];
@@ -129,8 +131,8 @@ export default function DiaryScreen() {
 
   return (
     <LinearGradient colors={["#0A0A0F", "#0D0B1A"]} style={{ flex: 1 }}>
-      <SafeAreaView style={{ flex: 1 }}>
-        <View style={styles.header}>
+      <View style={{ flex: 1 }}>
+        <View style={[styles.header, { paddingTop: (insets.top > 0 ? insets.top : (Platform.OS === "web" ? 20 : 44)) + 8 }]}>
           <TouchableOpacity onPress={() => router.back()}>
             <Ionicons name="chevron-back" size={24} color="#FFF" />
           </TouchableOpacity>
@@ -183,7 +185,7 @@ export default function DiaryScreen() {
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
-      </SafeAreaView>
+      </View>
     </LinearGradient>
   );
 }
