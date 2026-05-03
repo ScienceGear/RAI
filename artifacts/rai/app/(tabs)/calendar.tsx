@@ -8,6 +8,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
+import Animated, {
+  useSharedValue, useAnimatedStyle, withSpring, runOnJS,
+} from "react-native-reanimated";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/contexts/AppContext";
@@ -55,6 +59,221 @@ function formatTime(time: string): string {
 
 function todayStr(): string { return new Date().toISOString().split("T")[0]; }
 
+// ── Draggable Task Block ────────────────────────────────────────────────────
+interface DraggableTaskBlockProps {
+  task: Task;
+  col: number;
+  totalCols: number;
+  isExpanded: boolean;
+  onTimeChange: (time: string) => void;
+  onComplete: () => void;
+  onTap: () => void;
+  onDragStart: () => void;
+  onDragEnd: () => void;
+  colors: ReturnType<typeof useColors>;
+}
+
+function DraggableTaskBlock({
+  task, col, totalCols, isExpanded,
+  onTimeChange, onComplete, onTap,
+  onDragStart, onDragEnd, colors,
+}: DraggableTaskBlockProps) {
+  const catColor = getCategoryColor(task.categoryPrimary, true);
+  const startMin = timeToMinutes(task.scheduledTime ?? "00:00");
+  const top = minutesToTop(startMin);
+  const height = clampTaskHeight(task.estimatedMinutes ?? 30);
+
+  const translateY = useSharedValue(0);
+  const translateX = useSharedValue(0);
+  const scale = useSharedValue(1);
+  const elevation = useSharedValue(0);
+
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragTime, setDragTime] = useState(task.scheduledTime ?? "00:00");
+  const [swiping, setSwiping] = useState<"right" | "left" | null>(null);
+
+  const updateDragTime = (mins: number) => {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    setDragTime(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
+  };
+
+  const commitTime = (mins: number) => {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    onTimeChange(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
+  };
+
+  const dragGesture = Gesture.Pan()
+    .activateAfterLongPress(320)
+    .onStart(() => {
+      "worklet";
+      scale.value = withSpring(1.05);
+      elevation.value = 12;
+      runOnJS(setIsDragging)(true);
+      runOnJS(onDragStart)();
+      runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Medium);
+    })
+    .onUpdate((e) => {
+      "worklet";
+      translateY.value = e.translationY;
+      const rawMins = startMin + Math.round(e.translationY / (HOUR_HEIGHT / 60));
+      const snapped = Math.round(rawMins / 15) * 15;
+      const clamped = Math.max(START_HOUR * 60, Math.min((END_HOUR - 1) * 60, snapped));
+      runOnJS(updateDragTime)(clamped);
+    })
+    .onEnd((e) => {
+      "worklet";
+      scale.value = withSpring(1);
+      elevation.value = 0;
+      const rawMins = startMin + Math.round(e.translationY / (HOUR_HEIGHT / 60));
+      const snapped = Math.round(rawMins / 15) * 15;
+      const clamped = Math.max(START_HOUR * 60, Math.min((END_HOUR - 1) * 60, snapped));
+      translateY.value = withSpring(0);
+      runOnJS(setIsDragging)(false);
+      runOnJS(onDragEnd)();
+      runOnJS(commitTime)(clamped);
+      runOnJS(Haptics.notificationAsync)(Haptics.NotificationFeedbackType.Success);
+    })
+    .onFinalize(() => {
+      "worklet";
+      scale.value = withSpring(1);
+      elevation.value = 0;
+      translateY.value = withSpring(0);
+      runOnJS(setIsDragging)(false);
+      runOnJS(onDragEnd)();
+    });
+
+  const swipeGesture = Gesture.Pan()
+    .minDistance(15)
+    .onUpdate((e) => {
+      "worklet";
+      const isHoriz = Math.abs(e.translationX) > Math.abs(e.translationY) * 1.3;
+      if (!isHoriz) return;
+      translateX.value = e.translationX * 0.6;
+      if (e.translationX > 30) runOnJS(setSwiping)("right");
+      else if (e.translationX < -30) runOnJS(setSwiping)("left");
+      else runOnJS(setSwiping)(null);
+    })
+    .onEnd((e) => {
+      "worklet";
+      const isHoriz = Math.abs(e.translationX) > Math.abs(e.translationY) * 1.3;
+      if (isHoriz && e.translationX > 72) {
+        translateX.value = withSpring(300, {}, () => {
+          runOnJS(onComplete)();
+        });
+        runOnJS(Haptics.notificationAsync)(Haptics.NotificationFeedbackType.Success);
+      } else if (isHoriz && e.translationX < -72) {
+        translateX.value = withSpring(0);
+        runOnJS(setSwiping)(null);
+      } else {
+        translateX.value = withSpring(0);
+        runOnJS(setSwiping)(null);
+      }
+    })
+    .onFinalize(() => {
+      "worklet";
+      if (translateX.value < 200) {
+        translateX.value = withSpring(0);
+        runOnJS(setSwiping)(null);
+      }
+    });
+
+  const tapGesture = Gesture.Tap().onEnd(() => {
+    "worklet";
+    runOnJS(onTap)();
+  });
+
+  const composed = Gesture.Race(dragGesture, swipeGesture, tapGesture);
+
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateY: translateY.value },
+      { translateX: translateX.value },
+      { scale: scale.value },
+    ],
+    zIndex: elevation.value > 0 ? 100 : 5,
+    shadowOpacity: elevation.value > 0 ? 0.4 : 0,
+    shadowRadius: elevation.value,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: elevation.value > 0 ? 6 : 0 },
+    elevation: elevation.value,
+  }));
+
+  const colWidth = `${(1 / totalCols) * 100}%` as any;
+  const colLeft = `${(col / totalCols) * 100}%` as any;
+
+  return (
+    <GestureDetector gesture={composed}>
+      <Animated.View
+        style={[
+          styles.taskBlock,
+          {
+            top,
+            height: isExpanded ? height + 40 : height,
+            left: colLeft,
+            width: colWidth,
+            borderLeftColor: catColor,
+            backgroundColor: swiping === "right"
+              ? "#22C55E33"
+              : swiping === "left"
+              ? "#EF444433"
+              : catColor + "22",
+          },
+          animStyle,
+        ]}
+      >
+        {/* Swipe hint icon */}
+        {swiping === "right" && (
+          <View style={styles.swipeHint}>
+            <Ionicons name="checkmark-circle" size={18} color="#22C55E" />
+          </View>
+        )}
+
+        {/* Drag time tooltip */}
+        {isDragging && (
+          <View style={[styles.dragTooltip, { backgroundColor: catColor }]}>
+            <Ionicons name="time-outline" size={9} color="#FFF" />
+            <Text style={styles.dragTooltipText}>{formatTime(dragTime)}</Text>
+          </View>
+        )}
+
+        <View style={styles.taskBlockInner}>
+          <Text style={[styles.taskBlockTitle, { color: colors.foreground }]} numberOfLines={isExpanded ? 3 : 1}>
+            {task.title}
+          </Text>
+          <Text style={[styles.taskBlockMeta, { color: catColor }]}>
+            {formatTime(isDragging ? dragTime : task.scheduledTime!)} · {task.estimatedMinutes}m
+          </Text>
+          {isExpanded && (
+            <View style={styles.taskBlockActions}>
+              <TouchableOpacity
+                onPress={() => { onComplete(); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); }}
+                style={[styles.taskActionBtn, { backgroundColor: "#22C55E22", borderColor: "#22C55E44" }]}
+              >
+                <Ionicons name="checkmark" size={12} color="#22C55E" />
+                <Text style={[styles.taskActionText, { color: "#22C55E" }]}>Done</Text>
+              </TouchableOpacity>
+              <View style={[styles.taskPriBadge, { backgroundColor: catColor + "33" }]}>
+                <Text style={[styles.taskPriText, { color: catColor }]}>{task.categoryPrimary}</Text>
+              </View>
+            </View>
+          )}
+        </View>
+
+        {/* Long-press drag hint (bottom strip when not dragging) */}
+        {!isDragging && height > 38 && (
+          <View style={[styles.dragHandle, { backgroundColor: catColor + "55" }]}>
+            <View style={[styles.dragHandleDots, { backgroundColor: catColor }]} />
+            <View style={[styles.dragHandleDots, { backgroundColor: catColor }]} />
+            <View style={[styles.dragHandleDots, { backgroundColor: catColor }]} />
+          </View>
+        )}
+      </Animated.View>
+    </GestureDetector>
+  );
+}
+
 // Assign column positions to overlapping tasks
 interface TaskColumn { task: Task; col: number; totalCols: number }
 function layoutTasks(tasks: Task[]): TaskColumn[] {
@@ -95,6 +314,7 @@ export default function CalendarScreen() {
   const [showTaskSheet, setShowTaskSheet] = useState(false);
   const [prefillTime, setPrefillTime] = useState<string>();
   const [showAIChat, setShowAIChat] = useState(false);
+  const [isDraggingAny, setIsDraggingAny] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     { id: "welcome", role: "assistant", text: `Hey ${profile.firstName}! I can see your full schedule. Tell me what to plan or reschedule — I'll handle it instantly.` },
   ]);
@@ -146,7 +366,7 @@ export default function CalendarScreen() {
     const laid = layoutTasks(scheduledTasks);
 
     return (
-      <ScrollView ref={timelineRef} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
+      <ScrollView ref={timelineRef} showsVerticalScrollIndicator={false} scrollEnabled={!isDraggingAny} contentContainerStyle={{ paddingBottom: 100 }}>
         {/* All-day / unscheduled for this day */}
         {allDayTasks.length > 0 && (
           <View style={[styles.allDayRow, { borderBottomColor: colors.border, backgroundColor: colors.card + "88" }]}>
@@ -225,65 +445,27 @@ export default function CalendarScreen() {
             )}
 
             {/* Task blocks */}
-            {laid.map(({ task, col, totalCols }) => {
-              const startMin = timeToMinutes(task.scheduledTime ?? "00:00");
-              const top = minutesToTop(startMin);
-              const height = clampTaskHeight(task.estimatedMinutes ?? 30);
-              const catColor = getCategoryColor(task.categoryPrimary, true);
-              const isExpanded = expandedTask === task.id;
-              const colWidth = `${(1 / totalCols) * 100}%` as any;
-              const colLeft = `${(col / totalCols) * 100}%` as any;
-
-              return (
-                <TouchableOpacity
-                  key={task.id}
-                  activeOpacity={0.85}
-                  onPress={() => {
-                    Haptics.selectionAsync();
-                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                    setExpandedTask(isExpanded ? null : task.id);
-                  }}
-                  onLongPress={() => {
-                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                    completeTask(task.id);
-                  }}
-                  style={[
-                    styles.taskBlock,
-                    {
-                      top,
-                      height: isExpanded ? height + 40 : height,
-                      left: colLeft,
-                      width: colWidth,
-                      borderLeftColor: catColor,
-                      backgroundColor: catColor + "22",
-                    },
-                  ]}
-                >
-                  <View style={[styles.taskBlockInner]}>
-                    <Text style={[styles.taskBlockTitle, { color: colors.foreground }]} numberOfLines={isExpanded ? 3 : 1}>
-                      {task.title}
-                    </Text>
-                    <Text style={[styles.taskBlockMeta, { color: catColor }]}>
-                      {formatTime(task.scheduledTime!)} · {task.estimatedMinutes}m
-                    </Text>
-                    {isExpanded && (
-                      <View style={styles.taskBlockActions}>
-                        <TouchableOpacity
-                          onPress={() => { completeTask(task.id); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); }}
-                          style={[styles.taskActionBtn, { backgroundColor: "#22C55E22", borderColor: "#22C55E44" }]}
-                        >
-                          <Ionicons name="checkmark" size={12} color="#22C55E" />
-                          <Text style={[styles.taskActionText, { color: "#22C55E" }]}>Done</Text>
-                        </TouchableOpacity>
-                        <View style={[styles.taskPriBadge, { backgroundColor: catColor + "33" }]}>
-                          <Text style={[styles.taskPriText, { color: catColor }]}>{task.categoryPrimary}</Text>
-                        </View>
-                      </View>
-                    )}
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
+            {laid.map(({ task, col, totalCols }) => (
+              <DraggableTaskBlock
+                key={task.id}
+                task={task}
+                col={col}
+                totalCols={totalCols}
+                isExpanded={expandedTask === task.id}
+                colors={colors}
+                onTap={() => {
+                  Haptics.selectionAsync();
+                  LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                  setExpandedTask(expandedTask === task.id ? null : task.id);
+                }}
+                onComplete={() => completeTask(task.id)}
+                onTimeChange={(newTime) => {
+                  updateTask(task.id, { scheduledTime: newTime });
+                }}
+                onDragStart={() => setIsDraggingAny(true)}
+                onDragEnd={() => setIsDraggingAny(false)}
+              />
+            ))}
           </View>
         </View>
 
@@ -755,6 +937,39 @@ const styles = StyleSheet.create({
   taskActionText: { fontSize: 10, fontFamily: "Inter_600SemiBold" },
   taskPriBadge: { borderRadius: 6, paddingHorizontal: 6, paddingVertical: 3 },
   taskPriText: { fontSize: 10, fontFamily: "Inter_500Medium" },
+  dragTooltip: {
+    position: "absolute",
+    top: -22,
+    left: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    zIndex: 200,
+  },
+  dragTooltipText: { fontSize: 10, fontFamily: "Inter_700Bold", color: "#FFF" },
+  dragHandle: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 3,
+  },
+  dragHandleDots: { width: 3, height: 3, borderRadius: 2 },
+  swipeHint: {
+    position: "absolute",
+    right: 6,
+    top: 0,
+    bottom: 0,
+    justifyContent: "center",
+    zIndex: 10,
+  },
 
   // Completed & unscheduled sections
   completedSection: { borderTopWidth: 1, marginTop: 16, paddingHorizontal: 16, paddingTop: 12, gap: 8 },
