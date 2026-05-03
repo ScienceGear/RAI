@@ -46,6 +46,9 @@ export default function SplashScreen() {
         router.replace("/auth");
       } else if (!profile.onboardingComplete) {
         router.replace("/onboarding");
+      } else if (!profile.permissionsRequested) {
+        // Show permissions for both new and existing users who haven't gone through it
+        router.replace("/onboarding/permissions");
       } else {
         router.replace("/(tabs)/home");
       }

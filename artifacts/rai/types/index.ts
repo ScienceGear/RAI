@@ -130,6 +130,7 @@ export interface UserProfile {
   usageStatsGranted: boolean;
   accessibilityGranted: boolean;
   microphoneGranted: boolean;
+  permissionsRequested?: boolean;
 }
 
 export interface DangerZoneProfile {

@@ -12,6 +12,7 @@ import { ProgressRing } from "@/components/ProgressRing";
 import { getCategoryColor } from "@/constants/categories";
 import { MoodCheckInModal } from "@/components/MoodCheckInModal";
 import { Task, TimerMode } from "@/types";
+import { showFocusNotification, clearFocusNotification } from "@/lib/notifications";
 
 const DURATIONS: Record<TimerMode, number> = {
   pomodoro: 25,
@@ -46,15 +47,20 @@ export default function FocusScreen() {
   const [isComplete, setIsComplete] = useState(false);
   const [showMoodCheck, setShowMoodCheck] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const notifIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const totalSeconds = DURATIONS[selectedMode] * 60;
   const progress = (totalSeconds - timeRemaining) / totalSeconds;
+  const minutes = Math.floor(timeRemaining / 60);
+  const seconds = timeRemaining % 60;
+  const timeStr = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 
   useEffect(() => {
     if (!isRunning) return;
     setTimeRemaining(DURATIONS[selectedMode] * 60);
   }, [selectedMode]);
 
+  // Main timer tick
   useEffect(() => {
     if (isRunning && !isPaused) {
       intervalRef.current = setInterval(() => {
@@ -75,6 +81,28 @@ export default function FocusScreen() {
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, [isRunning, isPaused, selectedMode]);
 
+  // Live notification — update every 60 s while session is active
+  useEffect(() => {
+    if (isRunning && !isPaused && Platform.OS === "android") {
+      // Show immediately
+      showFocusNotification(timeStr, selectedTask?.title);
+      // Update every 60 s
+      notifIntervalRef.current = setInterval(() => {
+        const remaining = timeRemaining;
+        const m = Math.floor(remaining / 60);
+        const s = remaining % 60;
+        const str = `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+        showFocusNotification(str, selectedTask?.title);
+      }, 60_000);
+    } else {
+      if (notifIntervalRef.current) clearInterval(notifIntervalRef.current);
+      if (Platform.OS === "android") clearFocusNotification();
+    }
+    return () => {
+      if (notifIntervalRef.current) clearInterval(notifIntervalRef.current);
+    };
+  }, [isRunning, isPaused]);
+
   const handleStart = async () => {
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setIsRunning(true);
@@ -92,6 +120,9 @@ export default function FocusScreen() {
   const handleEnd = async () => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     if (intervalRef.current) clearInterval(intervalRef.current);
+    if (notifIntervalRef.current) clearInterval(notifIntervalRef.current);
+    clearFocusNotification();
+
     const completedMinutes = sessionStart
       ? Math.round((new Date().getTime() - sessionStart.getTime()) / 60000)
       : DURATIONS[selectedMode] - Math.floor(timeRemaining / 60);
@@ -117,6 +148,9 @@ export default function FocusScreen() {
 
   const handleComplete = useCallback(async () => {
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    if (notifIntervalRef.current) clearInterval(notifIntervalRef.current);
+    clearFocusNotification();
+
     const xp = Math.round(DURATIONS[selectedMode] * 1.5);
     setXpEarned(xp);
     setIsComplete(true);
@@ -139,23 +173,26 @@ export default function FocusScreen() {
     setTimeout(() => setShowMoodCheck(true), 600);
   }, [selectedMode, selectedTask, sessionStart]);
 
-  const minutes = Math.floor(timeRemaining / 60);
-  const seconds = timeRemaining % 60;
-  const timeStr = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-
   const catColor = selectedTask ? getCategoryColor(selectedTask.categoryPrimary, true) : colors.primary;
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
-
   const todayTasks = tasks.filter((t) => t.scheduledDate === today && !t.completed);
 
   return (
     <LinearGradient colors={["#0A0A0F", "#0D0B1A", "#130A28"]} style={{ flex: 1 }}>
       <View style={[styles.container, { paddingTop: topPadding }]}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()}>
+          <TouchableOpacity onPress={() => { clearFocusNotification(); router.back(); }}>
             <Ionicons name="chevron-back" size={24} color="#FFF" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Focus Timer</Text>
+          <View style={styles.headerCenter}>
+            <Text style={styles.headerTitle}>Focus Timer</Text>
+            {isRunning && !isPaused && (
+              <View style={styles.livePill}>
+                <View style={styles.liveDot} />
+                <Text style={styles.liveText}>LIVE</Text>
+              </View>
+            )}
+          </View>
           <View style={{ width: 24 }} />
         </View>
 
@@ -166,7 +203,7 @@ export default function FocusScreen() {
               <Text style={[styles.taskTitle, { color: "#FFF" }]} numberOfLines={1}>{selectedTask.title}</Text>
             </View>
           ) : (
-            <Text style={styles.noTaskLabel}>No task selected — free focus</Text>
+            <Text style={styles.noTaskLabel}>No task — free focus</Text>
           )}
 
           <View style={styles.modeRow}>
@@ -200,7 +237,7 @@ export default function FocusScreen() {
               <View style={styles.timerInner}>
                 {isComplete ? (
                   <>
-                    <Ionicons name="checkmark-circle" size={56} color={colors.success} />
+                    <Ionicons name="checkmark-circle" size={56} color="#10B981" />
                     <Text style={styles.doneText}>Done!</Text>
                     <Text style={styles.xpBadge}>+{xpEarned} XP</Text>
                   </>
@@ -245,7 +282,7 @@ export default function FocusScreen() {
           {!isRunning && todayTasks.length > 0 && (
             <View style={styles.taskPicker}>
               <Text style={styles.pickerLabel}>Choose a task</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.taskPickerScroll}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                 <TouchableOpacity
                   onPress={() => setSelectedTask(undefined)}
                   style={[styles.taskPickerBtn, {
@@ -276,6 +313,15 @@ export default function FocusScreen() {
               </ScrollView>
             </View>
           )}
+
+          {isRunning && Platform.OS === "android" && (
+            <View style={[styles.notifNote, { borderColor: catColor + "33" }]}>
+              <Ionicons name="notifications-outline" size={13} color={catColor} />
+              <Text style={[styles.notifNoteText, { color: "#6B7280" }]}>
+                Timer is showing in your notification bar
+              </Text>
+            </View>
+          )}
         </ScrollView>
       </View>
       <MoodCheckInModal
@@ -290,7 +336,11 @@ export default function FocusScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingVertical: 12 },
+  headerCenter: { flexDirection: "row", alignItems: "center", gap: 8 },
   headerTitle: { fontSize: 17, fontFamily: "Inter_700Bold", color: "#FFF" },
+  livePill: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#EF444422", borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3 },
+  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#EF4444" },
+  liveText: { fontSize: 10, fontFamily: "Inter_700Bold", color: "#EF4444", letterSpacing: 1 },
   content: { alignItems: "center", paddingHorizontal: 24, paddingBottom: 60, gap: 24 },
   taskBanner: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 12, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 10, alignSelf: "stretch" },
   taskDot: { width: 8, height: 8, borderRadius: 4 },
@@ -313,7 +363,8 @@ const styles = StyleSheet.create({
   controlBtn: { width: 64, height: 64, borderRadius: 32, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   taskPicker: { alignSelf: "stretch", gap: 10 },
   pickerLabel: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: "#6B7280" },
-  taskPickerScroll: {},
   taskPickerBtn: { borderRadius: 10, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 8, marginRight: 8, maxWidth: 160 },
   taskPickerBtnText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  notifNote: { flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
+  notifNoteText: { fontSize: 12, fontFamily: "Inter_400Regular" },
 });
