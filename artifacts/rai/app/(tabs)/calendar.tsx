@@ -952,17 +952,11 @@ export default function CalendarScreen() {
       {view === "week" && renderWeekView()}
       {view === "month" && renderMonthView()}
 
-      {/* AI Chat Modal */}
-      <Modal visible={showAIChat} transparent animationType="slide" onRequestClose={() => setShowAIChat(false)}>
-        <View style={styles.aiModalContainer}>
-          <Pressable style={styles.aiModalBackdrop} onPress={() => setShowAIChat(false)} />
+      {/* AI Chat Modal — full screen */}
+      <Modal visible={showAIChat} transparent={false} animationType="slide" onRequestClose={() => setShowAIChat(false)}>
+        <View style={[styles.aiModalContainer, { backgroundColor: colors.background }]}>
           <Animated.View style={[styles.aiAnimWrapper, aiSheetAnimStyle]}>
-            <GestureDetector gesture={aiDismissGesture}>
-              <View style={[styles.aiHandleArea, { backgroundColor: colors.background }]}>
-                <View style={[styles.aiHandlePill, { backgroundColor: colors.border }]} />
-              </View>
-            </GestureDetector>
-            <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={[styles.aiSheet, { backgroundColor: colors.background, paddingBottom: insets.bottom + 8 }]}>
+            <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={[styles.aiSheet, { backgroundColor: colors.background, paddingBottom: insets.bottom + 8, paddingTop: insets.top }]}>
               <View style={[styles.aiHeader, { borderBottomColor: colors.border }]}>
                 <View style={styles.aiHeaderLeft}>
                   <View style={[styles.aiHeaderIcon, { backgroundColor: colors.primary }]}>
@@ -1233,12 +1227,12 @@ const styles = StyleSheet.create({
   monthCheckBtn: { width: 26, height: 26, borderRadius: 13, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
 
   // AI modal
-  aiModalContainer: { flex: 1, justifyContent: "flex-end" },
+  aiModalContainer: { flex: 1 },
   aiModalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "#00000088" },
-  aiAnimWrapper: { borderTopLeftRadius: 24, borderTopRightRadius: 24, overflow: "hidden" },
-  aiHandleArea: { alignItems: "center", paddingTop: 12, paddingBottom: 6, borderTopLeftRadius: 24, borderTopRightRadius: 24 },
+  aiAnimWrapper: { flex: 1 },
+  aiHandleArea: { alignItems: "center", paddingTop: 12, paddingBottom: 6 },
   aiHandlePill: { width: 36, height: 4, borderRadius: 2 },
-  aiSheet: { maxHeight: "85%", minHeight: "60%" },
+  aiSheet: { flex: 1 },
   aiHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 16, borderBottomWidth: 1 },
   aiHeaderLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
   aiHeaderIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
