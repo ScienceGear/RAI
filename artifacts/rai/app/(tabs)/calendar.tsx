@@ -50,8 +50,9 @@ function clampTaskHeight(estimatedMinutes: number): number {
   return Math.max(28, estimatedMinutes * (HOUR_HEIGHT / 60));
 }
 
-function formatTime(time: string): string {
+function formatTime(time: string, use24Hour = false): string {
   const [h, m] = time.split(":").map(Number);
+  if (use24Hour) return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
   const ampm = h >= 12 ? "PM" : "AM";
   const displayH = h === 0 ? 12 : h > 12 ? h - 12 : h;
   return `${displayH}:${String(m).padStart(2, "0")} ${ampm}`;
@@ -65,6 +66,7 @@ interface DraggableTaskBlockProps {
   col: number;
   totalCols: number;
   isExpanded: boolean;
+  use24Hour: boolean;
   onTimeChange: (time: string) => void;
   onComplete: () => void;
   onTap: () => void;
@@ -74,7 +76,7 @@ interface DraggableTaskBlockProps {
 }
 
 function DraggableTaskBlock({
-  task, col, totalCols, isExpanded,
+  task, col, totalCols, isExpanded, use24Hour,
   onTimeChange, onComplete, onTap,
   onDragStart, onDragEnd, colors,
 }: DraggableTaskBlockProps) {
@@ -234,7 +236,7 @@ function DraggableTaskBlock({
         {isDragging && (
           <View style={[styles.dragTooltip, { backgroundColor: catColor }]}>
             <Ionicons name="time-outline" size={9} color="#FFF" />
-            <Text style={styles.dragTooltipText}>{formatTime(dragTime)}</Text>
+            <Text style={styles.dragTooltipText}>{formatTime(dragTime, use24Hour)}</Text>
           </View>
         )}
 
@@ -243,7 +245,7 @@ function DraggableTaskBlock({
             {task.title}
           </Text>
           <Text style={[styles.taskBlockMeta, { color: catColor }]} numberOfLines={1}>
-            {formatTime(isDragging ? dragTime : task.scheduledTime!)} · {task.estimatedMinutes}m
+            {formatTime(isDragging ? dragTime : task.scheduledTime!, use24Hour)} · {task.estimatedMinutes}m
           </Text>
           {isExpanded && (
             <View style={styles.taskBlockActions}>
@@ -575,6 +577,7 @@ export default function CalendarScreen() {
                 col={col}
                 totalCols={totalCols}
                 isExpanded={expandedTask === task.id}
+                use24Hour={!!profile.use24Hour}
                 colors={colors}
                 onTap={() => {
                   Haptics.selectionAsync();
@@ -603,7 +606,7 @@ export default function CalendarScreen() {
                 <View style={[styles.completedDot, { backgroundColor: getCategoryColor(t.categoryPrimary, true) + "60" }]} />
                 <Text style={[styles.completedText, { color: colors.mutedForeground }]}>{t.title}</Text>
                 {t.scheduledTime && (
-                  <Text style={[styles.completedTime, { color: colors.mutedForeground }]}>{formatTime(t.scheduledTime)}</Text>
+                  <Text style={[styles.completedTime, { color: colors.mutedForeground }]}>{formatTime(t.scheduledTime, profile.use24Hour)}</Text>
                 )}
               </View>
             ))}
@@ -815,7 +818,7 @@ export default function CalendarScreen() {
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.monthPreviewTaskName, { color: t.completed ? colors.mutedForeground : colors.foreground, textDecorationLine: t.completed ? "line-through" : "none" }]}>{t.title}</Text>
                     {t.scheduledTime && (
-                      <Text style={[styles.monthPreviewTime, { color: catColor }]}>{formatTime(t.scheduledTime)} · {t.estimatedMinutes}min</Text>
+                      <Text style={[styles.monthPreviewTime, { color: catColor }]}>{formatTime(t.scheduledTime, profile.use24Hour)} · {t.estimatedMinutes}min</Text>
                     )}
                   </View>
                   {!t.completed && (
@@ -1027,7 +1030,7 @@ export default function CalendarScreen() {
             }]}
           >
             {ghostTime !== "" && (
-              <Text style={styles.ghostChipTime}>{formatTime(ghostTime)}</Text>
+              <Text style={styles.ghostChipTime}>{formatTime(ghostTime, profile.use24Hour)}</Text>
             )}
             <Text style={styles.ghostChipTitle} numberOfLines={1}>{draggingAllDay.title}</Text>
           </View>

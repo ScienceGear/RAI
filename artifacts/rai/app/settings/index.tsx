@@ -119,6 +119,22 @@ export default function SettingsScreen() {
         <View style={styles.content}>
 
           <SectionHeader title="APPEARANCE" />
+          <View style={[styles.settingGroup, { backgroundColor: colors.card, borderColor: colors.border, marginBottom: 8 }]}>
+            <SettingRow
+              icon="time-outline"
+              iconColor="#6366F1"
+              label="24-Hour Clock"
+              subtitle={profile.use24Hour ? "Showing 14:30 format" : "Showing 2:30 PM format"}
+              right={
+                <Switch
+                  value={!!profile.use24Hour}
+                  onValueChange={(v) => { Haptics.selectionAsync(); updateProfile({ use24Hour: v }); }}
+                  trackColor={{ false: colors.border, true: colors.primary }}
+                  thumbColor="#FFF"
+                />
+              }
+            />
+          </View>
           <View style={[styles.themeGrid, { backgroundColor: colors.card, borderColor: colors.border }]}>
             {THEMES.map((t) => (
               <TouchableOpacity

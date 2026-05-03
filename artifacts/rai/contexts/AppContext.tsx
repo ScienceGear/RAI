@@ -100,6 +100,7 @@ const defaultProfile: UserProfile = {
   raiScore: 0,
   onboardingComplete: false,
   theme: "dark",
+  use24Hour: false,
   aiMemory: [],
   notificationsGranted: false,
   usageStatsGranted: false,

@@ -118,6 +118,7 @@ export interface UserProfile {
   raiScore: number;
   onboardingComplete: boolean;
   theme: Theme;
+  use24Hour: boolean;
   aiMemory: AIMemoryFact[];
   notificationsGranted: boolean;
   usageStatsGranted: boolean;
