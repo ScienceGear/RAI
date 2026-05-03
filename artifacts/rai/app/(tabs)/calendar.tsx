@@ -242,7 +242,7 @@ function DraggableTaskBlock({
           <Text style={[styles.taskBlockTitle, { color: colors.foreground }]} numberOfLines={isExpanded ? 3 : 1}>
             {task.title}
           </Text>
-          <Text style={[styles.taskBlockMeta, { color: catColor }]}>
+          <Text style={[styles.taskBlockMeta, { color: catColor }]} numberOfLines={1}>
             {formatTime(isDragging ? dragTime : task.scheduledTime!)} · {task.estimatedMinutes}m
           </Text>
           {isExpanded && (
@@ -269,6 +269,63 @@ function DraggableTaskBlock({
             <View style={[styles.dragHandleDots, { backgroundColor: catColor }]} />
           </View>
         )}
+      </Animated.View>
+    </GestureDetector>
+  );
+}
+
+// ── Draggable All-Day Chip ──────────────────────────────────────────────────
+interface DraggableAllDayChipProps {
+  task: Task;
+  colors: ReturnType<typeof useColors>;
+  onDragStart: (task: Task) => void;
+  onDragMove: (x: number, y: number) => void;
+  onDragEnd: (x: number, y: number) => void;
+  onDragCancel: () => void;
+}
+
+function DraggableAllDayChip({ task, colors, onDragStart, onDragMove, onDragEnd, onDragCancel }: DraggableAllDayChipProps) {
+  const catColor = getCategoryColor(task.categoryPrimary, true);
+  const scale = useSharedValue(1);
+  const chipOpacity = useSharedValue(1);
+
+  const panGesture = Gesture.Pan()
+    .activateAfterLongPress(320)
+    .onStart(() => {
+      "worklet";
+      scale.value = withSpring(0.88);
+      chipOpacity.value = withSpring(0.35);
+      runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Heavy);
+      runOnJS(onDragStart)(task);
+    })
+    .onUpdate((e) => {
+      "worklet";
+      runOnJS(onDragMove)(e.absoluteX, e.absoluteY);
+    })
+    .onEnd((e) => {
+      "worklet";
+      scale.value = withSpring(1);
+      chipOpacity.value = withSpring(1);
+      runOnJS(onDragEnd)(e.absoluteX, e.absoluteY);
+    })
+    .onFinalize(() => {
+      "worklet";
+      scale.value = withSpring(1);
+      chipOpacity.value = withSpring(1);
+      runOnJS(onDragCancel)();
+    });
+
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+    opacity: chipOpacity.value,
+  }));
+
+  return (
+    <GestureDetector gesture={panGesture}>
+      <Animated.View style={[styles.allDayChip, { backgroundColor: catColor + "33", borderColor: catColor + "88" }, animStyle]}>
+        <View style={[styles.allDayDot, { backgroundColor: catColor }]} />
+        <Text style={[styles.allDayChipText, { color: colors.foreground }]} numberOfLines={1}>{task.title}</Text>
+        <Ionicons name="swap-vertical-outline" size={9} color={catColor} style={{ opacity: 0.7 }} />
       </Animated.View>
     </GestureDetector>
   );
@@ -315,6 +372,14 @@ export default function CalendarScreen() {
   const [prefillTime, setPrefillTime] = useState<string>();
   const [showAIChat, setShowAIChat] = useState(false);
   const [isDraggingAny, setIsDraggingAny] = useState(false);
+
+  // All-day chip drag-to-schedule state
+  const [draggingAllDay, setDraggingAllDay] = useState<Task | null>(null);
+  const [ghostPos, setGhostPos] = useState({ x: 0, y: 0 });
+  const [ghostTime, setGhostTime] = useState("");
+  const allDayRowRef = useRef<View>(null);
+  const allDayBottomY = useRef(0);
+  const timelineScrollY = useRef(0);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     { id: "welcome", role: "assistant", text: `Hey ${profile.firstName}! I can see your full schedule. Tell me what to plan or reschedule — I'll handle it instantly.` },
   ]);
@@ -337,6 +402,48 @@ export default function CalendarScreen() {
   const scheduledTasks = tasks.filter((t) => t.scheduledDate === dateStr && t.scheduledTime && !t.completed);
   const completedDayTasks = tasks.filter((t) => t.scheduledDate === dateStr && t.completed);
   const unscheduledTasks = tasks.filter((t) => !t.scheduledDate && !t.completed);
+
+  // Map absolute screen Y → scheduled time string
+  const yToTime = useCallback((absoluteY: number): string => {
+    const relY = absoluteY - allDayBottomY.current + timelineScrollY.current;
+    if (relY < 0) return "";
+    const rawMins = START_HOUR * 60 + Math.round(relY / (HOUR_HEIGHT / 60));
+    const snapped = Math.round(rawMins / 15) * 15;
+    const clamped = Math.max(START_HOUR * 60, Math.min((END_HOUR - 1) * 60, snapped));
+    const h = Math.floor(clamped / 60);
+    const m = clamped % 60;
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  }, []);
+
+  const handleAllDayDragStart = useCallback((task: Task) => {
+    setDraggingAllDay(task);
+    setIsDraggingAny(true);
+  }, []);
+
+  const handleAllDayDragMove = useCallback((x: number, y: number) => {
+    setGhostPos({ x, y });
+    const t = yToTime(y);
+    if (t) setGhostTime(t);
+  }, [yToTime]);
+
+  const handleAllDayDragEnd = useCallback((x: number, y: number) => {
+    const t = yToTime(y);
+    setDraggingAllDay((prev) => {
+      if (prev && t) {
+        updateTask(prev.id, { scheduledTime: t, scheduledDate: dateStr });
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+      return null;
+    });
+    setIsDraggingAny(false);
+    setGhostTime("");
+  }, [yToTime, updateTask, dateStr]);
+
+  const handleAllDayDragCancel = useCallback(() => {
+    setDraggingAllDay(null);
+    setIsDraggingAny(false);
+    setGhostTime("");
+  }, []);
 
   // Auto-scroll to current time on day view
   useEffect(() => {
@@ -366,21 +473,37 @@ export default function CalendarScreen() {
     const laid = layoutTasks(scheduledTasks);
 
     return (
-      <ScrollView ref={timelineRef} showsVerticalScrollIndicator={false} scrollEnabled={!isDraggingAny} contentContainerStyle={{ paddingBottom: 100 }}>
+      <ScrollView
+        ref={timelineRef}
+        showsVerticalScrollIndicator={false}
+        scrollEnabled={!isDraggingAny}
+        scrollEventThrottle={16}
+        onScroll={(e) => { timelineScrollY.current = e.nativeEvent.contentOffset.y; }}
+        contentContainerStyle={{ paddingBottom: 100 }}
+      >
         {/* All-day / unscheduled for this day */}
         {allDayTasks.length > 0 && (
-          <View style={[styles.allDayRow, { borderBottomColor: colors.border, backgroundColor: colors.card + "88" }]}>
+          <View
+            ref={allDayRowRef}
+            onLayout={() => {
+              allDayRowRef.current?.measure((_x, _y, _w, h, _px, py) => {
+                allDayBottomY.current = py + h;
+              });
+            }}
+            style={[styles.allDayRow, { borderBottomColor: colors.border, backgroundColor: colors.card + "88" }]}
+          >
             <Text style={[styles.allDayLabel, { color: colors.mutedForeground }]}>All Day</Text>
             <View style={styles.allDayTasks}>
               {allDayTasks.map((t) => (
-                <TouchableOpacity
+                <DraggableAllDayChip
                   key={t.id}
-                  onPress={() => { Haptics.selectionAsync(); completeTask(t.id); }}
-                  style={[styles.allDayChip, { backgroundColor: getCategoryColor(t.categoryPrimary, true) + "33", borderColor: getCategoryColor(t.categoryPrimary, true) + "88" }]}
-                >
-                  <View style={[styles.allDayDot, { backgroundColor: getCategoryColor(t.categoryPrimary, true) }]} />
-                  <Text style={[styles.allDayChipText, { color: colors.foreground }]} numberOfLines={1}>{t.title}</Text>
-                </TouchableOpacity>
+                  task={t}
+                  colors={colors}
+                  onDragStart={handleAllDayDragStart}
+                  onDragMove={handleAllDayDragMove}
+                  onDragEnd={handleAllDayDragEnd}
+                  onDragCancel={handleAllDayDragCancel}
+                />
               ))}
             </View>
           </View>
@@ -878,6 +1001,38 @@ export default function CalendarScreen() {
         prefillTime={prefillTime}
         prefillDate={dateStr}
       />
+
+      {/* Ghost chip that follows finger when dragging from All Day row */}
+      {draggingAllDay && (
+        <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
+          {/* Dim overlay so timeline shows through */}
+          <View style={[StyleSheet.absoluteFillObject, { backgroundColor: "rgba(0,0,0,0.25)" }]} />
+
+          {/* Drop target line on the timeline */}
+          {ghostTime !== "" && allDayBottomY.current > 0 && (
+            <View
+              style={[styles.ghostDropLine, {
+                top: allDayBottomY.current - timelineScrollY.current + minutesToTop(timeToMinutes(ghostTime)),
+                left: LABEL_WIDTH,
+              }]}
+            />
+          )}
+
+          {/* Floating ghost chip */}
+          <View
+            style={[styles.ghostChip, {
+              top: ghostPos.y - 24,
+              left: Math.min(Math.max(ghostPos.x - 56, 8), 260),
+              backgroundColor: getCategoryColor(draggingAllDay.categoryPrimary, true),
+            }]}
+          >
+            {ghostTime !== "" && (
+              <Text style={styles.ghostChipTime}>{formatTime(ghostTime)}</Text>
+            )}
+            <Text style={styles.ghostChipTitle} numberOfLines={1}>{draggingAllDay.title}</Text>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -929,9 +1084,9 @@ const styles = StyleSheet.create({
     padding: 4,
     zIndex: 5,
   },
-  taskBlockInner: { flex: 1, gap: 2 },
-  taskBlockTitle: { fontSize: 11, fontFamily: "Inter_600SemiBold", lineHeight: 14 },
-  taskBlockMeta: { fontSize: 9, fontFamily: "Inter_500Medium" },
+  taskBlockInner: { flex: 1, gap: 2, overflow: "hidden" },
+  taskBlockTitle: { fontSize: 11, fontFamily: "Inter_600SemiBold", lineHeight: 14, flexShrink: 1 },
+  taskBlockMeta: { fontSize: 9, fontFamily: "Inter_500Medium", flexShrink: 1 },
   taskBlockActions: { flexDirection: "row", gap: 6, marginTop: 4, flexWrap: "wrap" },
   taskActionBtn: { flexDirection: "row", alignItems: "center", gap: 3, borderRadius: 6, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 3 },
   taskActionText: { fontSize: 10, fontFamily: "Inter_600SemiBold" },
@@ -969,6 +1124,34 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: "center",
     zIndex: 10,
+  },
+
+  // All-day drag ghost
+  ghostChip: {
+    position: "absolute",
+    flexDirection: "column",
+    alignItems: "flex-start",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    minWidth: 100,
+    maxWidth: 180,
+    shadowColor: "#000",
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 16,
+    zIndex: 9999,
+  },
+  ghostChipTime: { fontSize: 11, fontFamily: "Inter_700Bold", color: "#FFF", opacity: 0.9 },
+  ghostChipTitle: { fontSize: 14, fontFamily: "Inter_700Bold", color: "#FFF" },
+  ghostDropLine: {
+    position: "absolute",
+    right: 0,
+    height: 2,
+    backgroundColor: "#6366F1",
+    borderRadius: 2,
+    zIndex: 9998,
   },
 
   // Completed & unscheduled sections
