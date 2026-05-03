@@ -175,6 +175,17 @@ export default function SettingsScreen() {
             />
           </View>
 
+          <SectionHeader title="APP BLOCKER" />
+          <View style={[styles.settingGroup, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <SettingRow
+              icon="shield-checkmark"
+              iconColor="#EF4444"
+              label="Manage Blocked Apps"
+              subtitle="Block distracting apps with commitment gates"
+              onPress={() => router.push("/settings/app-blocker")}
+            />
+          </View>
+
           <SectionHeader title="PRODUCTIVITY" />
           <View style={[styles.settingGroup, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <SettingRow icon="time" iconColor="#6366F1" label="Default Focus Duration" right={<Text style={{ color: colors.mutedForeground, fontSize: 13 }}>25 min</Text>} />

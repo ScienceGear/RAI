@@ -60,6 +60,8 @@ function RootLayoutNav() {
       <Stack.Screen name="anti-quit" />
       <Stack.Screen name="profile/index" />
       <Stack.Screen name="settings/index" />
+      <Stack.Screen name="blocker/index" options={{ animation: "slide_from_bottom", presentation: "fullScreenModal", gestureEnabled: false }} />
+      <Stack.Screen name="settings/app-blocker" options={{ animation: "slide_from_right" }} />
     </Stack>
   );
 }

@@ -14,7 +14,7 @@ import {
   listenToSquad, updateSquadMember, SquadDoc, uidToColor,
 } from "@/lib/firebase";
 import { listenToAuthState, signOut as authSignOut } from "@/lib/auth";
-import { scheduleTaskReminder, sendInstantNotification } from "@/lib/notifications";
+import { scheduleTaskReminder, sendInstantNotification, scheduleSmartAlerts } from "@/lib/notifications";
 
 const FIRESTORE_KEYS = ["profile", "tasks", "goals", "diary", "moodLogs", "focusSessions", "achievements", "activityFeed"];
 
@@ -545,7 +545,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     Math.min(40, todayFocusMinutes / 2)
   ));
 
-  // Recompute danger zone from actual usage data
+  // Recompute danger zone from actual usage data + schedule smart notifications
   useEffect(() => {
     const dangerHours = computeDangerZoneHours(focusSessions, moodLogs);
     const distractions = computeDistractionPatterns(tasks, focusSessions);
@@ -559,7 +559,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       isBootstrapEstimate: isBootstrap,
       lastComputedAt: new Date().toISOString(),
     });
-  }, [focusSessions.length, moodLogs.length, tasks.length]);
+    // Schedule smart danger-zone notifications when we have enough data
+    if (focusSessions.length >= 3 && profile.notificationsGranted) {
+      const bs = computeBrainState({ focusSessions, moodLogs, tasks, todayFocusScore, streak: profile.streak });
+      scheduleSmartAlerts({
+        dangerHours: dangerHours.length > 0 ? dangerHours : [14, 15, 22, 23],
+        brainStateName: bs.name,
+        totalScreenMinutes: 0,
+        socialMinutes: 0,
+      }).catch(() => {});
+    }
+  }, [focusSessions.length, moodLogs.length, tasks.length, profile.notificationsGranted]);
 
   // Brain state — recomputed whenever dependencies change
   const brainState: BrainState = computeBrainState({
