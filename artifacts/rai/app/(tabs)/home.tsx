@@ -6,7 +6,6 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons, Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 
 import { useColors } from "@/hooks/useColors";
@@ -19,6 +18,13 @@ import { Task } from "@/types";
 import { generateAIInsight } from "@/lib/ai";
 import { getRaiScoreTier } from "@/constants/categories";
 
+function getGreeting() {
+  const h = new Date().getHours();
+  if (h < 12) return "Good morning";
+  if (h < 17) return "Good afternoon";
+  return "Good evening";
+}
+
 export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -27,7 +33,7 @@ export default function HomeScreen() {
 
   const [showTaskSheet, setShowTaskSheet] = useState(false);
   const [showMood, setShowMood] = useState(false);
-  const [aiInsight, setAIInsight] = useState("");
+  const [aiInsight, setAIInsight] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | undefined>();
 
@@ -43,12 +49,9 @@ export default function HomeScreen() {
   const isInDangerZone = dangerZone.dangerHours.includes(currentHour);
 
   const { completeTask, deleteTask, scheduleTask } = useApp();
-
   const scoreTier = getRaiScoreTier(profile.raiScore);
 
-  useEffect(() => {
-    loadInsight();
-  }, []);
+  useEffect(() => { loadInsight(); }, []);
 
   const loadInsight = async () => {
     const insight = await generateAIInsight({
@@ -57,8 +60,10 @@ export default function HomeScreen() {
       focusScore: todayFocusScore,
       dangerHours: dangerZone.dangerHours,
     });
-    if (insight) setAIInsight(insight);
-    else setAIInsight(`You're ${profile.streak} days in. Keep the momentum — your best tasks are scheduled for your peak hours.`);
+    setAIInsight(
+      insight ||
+      `${profile.streak > 0 ? `${profile.streak}-day streak!` : "Welcome back."} ${todayTasks.length > 0 ? `${todayTasks.length} tasks lined up today.` : "Add a task to get started."}`
+    );
   };
 
   const onRefresh = useCallback(async () => {
@@ -67,25 +72,22 @@ export default function HomeScreen() {
     setRefreshing(false);
   }, []);
 
-  const topPadding = Platform.OS === "web" ? 67 : insets.top;
+  const topPadding = Platform.OS === "web" ? 56 : insets.top;
+  const tabBarHeight = Platform.OS === "web" ? 84 : 60 + insets.bottom;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
-        contentContainerStyle={{ paddingBottom: 120 + insets.bottom }}
+        contentContainerStyle={{ paddingBottom: tabBarHeight + 80 }}
       >
-        <LinearGradient
-          colors={isDark ? ["#0D0B1A", "#0A0A0F"] : ["#F0F1FF", "#F8F9FF"]}
-          style={[styles.header, { paddingTop: topPadding + 12 }]}
-        >
-          <View style={styles.topBar}>
-            <View style={styles.logoRow}>
-              <View style={[styles.logoMark, { backgroundColor: colors.primary }]}>
-                <Text style={styles.logoMarkText}>R</Text>
-              </View>
-              <Text style={[styles.logoText, { color: colors.foreground }]}>RAI</Text>
+        {/* ── Header ── */}
+        <View style={[styles.header, { paddingTop: topPadding + 16, backgroundColor: colors.background }]}>
+          <View style={styles.topRow}>
+            <View>
+              <Text style={[styles.greeting, { color: colors.mutedForeground }]}>{getGreeting()}</Text>
+              <Text style={[styles.userName, { color: colors.foreground }]}>{profile.firstName || "Athlete"}</Text>
             </View>
             <View style={styles.topActions}>
               <TouchableOpacity
@@ -95,99 +97,115 @@ export default function HomeScreen() {
                 <Ionicons name="happy-outline" size={20} color={colors.mutedForeground} />
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.iconBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+                style={[styles.iconBtn, { backgroundColor: colors.primary }]}
                 onPress={() => router.push("/profile")}
               >
-                <View style={[styles.avatar, { backgroundColor: colors.primary }]}>
-                  <Text style={styles.avatarText}>{profile.firstName[0]?.toUpperCase()}</Text>
-                </View>
+                <Text style={styles.avatarText}>{(profile.firstName?.[0] ?? "U").toUpperCase()}</Text>
               </TouchableOpacity>
             </View>
           </View>
+        </View>
 
-          <View style={styles.heroCard}>
-            <LinearGradient
-              colors={isDark ? ["#12121C", "#1A1A28"] : ["#FFFFFF", "#F5F3FF"]}
-              style={[styles.heroInner, { borderColor: colors.border }]}
+        {/* ── Score Card ── */}
+        <View style={styles.cardSection}>
+          <LinearGradient
+            colors={["#4F46E5", "#7C3AED"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.scoreCard}
+          >
+            <View style={styles.scoreLeft}>
+              <Text style={styles.scoreLabelText}>RAI SCORE</Text>
+              <Text style={styles.scoreBigNumber}>{todayFocusScore}</Text>
+              <View style={[styles.tierBadge, { backgroundColor: "rgba(255,255,255,0.15)" }]}>
+                <Text style={styles.tierText}>{scoreTier.title}</Text>
+              </View>
+            </View>
+            <ProgressRing
+              size={96}
+              strokeWidth={9}
+              progress={todayFocusScore / 100}
+              gradient
+              trackColor="rgba(255,255,255,0.15)"
             >
-              <View style={styles.heroLeft}>
-                <Text style={[styles.focusLabel, { color: colors.mutedForeground }]}>FOCUS SCORE</Text>
-                <Text style={[styles.focusScore, { color: colors.primary }]}>{todayFocusScore}</Text>
-                <Text style={[styles.raiTier, { color: colors.accent }]}>{scoreTier.title}</Text>
-              </View>
-              <ProgressRing
-                size={90}
-                strokeWidth={8}
-                progress={todayFocusScore / 100}
-                gradient
-                trackColor={isDark ? "#1E1E2E" : "#E2E8F0"}
-              >
-                <Text style={[styles.progressText, { color: colors.primary }]}>{todayFocusScore}%</Text>
-              </ProgressRing>
-            </LinearGradient>
+              <Text style={styles.ringPercent}>{todayFocusScore}%</Text>
+            </ProgressRing>
+          </LinearGradient>
 
-            {isInDangerZone && (
-              <View style={[styles.dangerBanner, { backgroundColor: colors.dangerZoneBackground, borderColor: colors.dangerZone + "44" }]}>
-                <Ionicons name="warning" size={14} color={colors.dangerZone} />
-                <Text style={[styles.dangerText, { color: colors.dangerZone }]}>
-                  Danger zone active · {dangerZone.dangerHours[0]}:00–{(dangerZone.dangerHours[dangerZone.dangerHours.length - 1] ?? 15) + 1}:00
-                </Text>
-              </View>
-            )}
-          </View>
-
-          <View style={styles.statsRow}>
-            <View style={styles.statItem}>
-              <Ionicons name="flame" size={16} color="#F97316" />
-              <Text style={[styles.statValue, { color: colors.foreground }]}>{profile.streak}</Text>
-              <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>day streak</Text>
-            </View>
-            <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
-            <View style={styles.statItem}>
-              <Ionicons name="star" size={16} color="#F59E0B" />
-              <Text style={[styles.statValue, { color: colors.foreground }]}>{profile.xp}</Text>
-              <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>XP</Text>
-            </View>
-            <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
-            <View style={styles.statItem}>
-              <Ionicons name="checkmark-circle" size={16} color={colors.success} />
-              <Text style={[styles.statValue, { color: colors.foreground }]}>{completedToday}/{todayTasks.length}</Text>
-              <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>done today</Text>
-            </View>
-          </View>
-        </LinearGradient>
-
-        <View style={styles.body}>
-          {aiInsight.length > 0 && (
-            <View style={[styles.insightCard, { backgroundColor: colors.card, borderColor: colors.primary + "33" }]}>
-              <View style={styles.insightHeader}>
-                <View style={[styles.raiDot, { backgroundColor: colors.primary }]} />
-                <Text style={[styles.insightLabel, { color: colors.primary }]}>RAI INSIGHT</Text>
-              </View>
-              <Text style={[styles.insightText, { color: colors.foreground }]}>{aiInsight}</Text>
+          {isInDangerZone && (
+            <View style={[styles.dangerBanner, { backgroundColor: colors.dangerZoneBackground, borderColor: colors.dangerZone + "44" }]}>
+              <Ionicons name="warning" size={14} color={colors.dangerZone} />
+              <Text style={[styles.dangerText, { color: colors.dangerZone }]}>
+                Danger zone · {dangerZone.dangerHours[0]}:00–{(dangerZone.dangerHours[dangerZone.dangerHours.length - 1] ?? 15) + 1}:00
+              </Text>
             </View>
           )}
+        </View>
 
+        {/* ── Stats ── */}
+        <View style={[styles.statsRow, { borderColor: colors.border }]}>
+          <View style={styles.statItem}>
+            <Ionicons name="flame" size={18} color="#F97316" />
+            <Text style={[styles.statValue, { color: colors.foreground }]}>{profile.streak}</Text>
+            <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>streak</Text>
+          </View>
+          <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
+          <View style={styles.statItem}>
+            <Ionicons name="star" size={18} color="#F59E0B" />
+            <Text style={[styles.statValue, { color: colors.foreground }]}>{profile.xp}</Text>
+            <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>XP</Text>
+          </View>
+          <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
+          <View style={styles.statItem}>
+            <Ionicons name="checkmark-circle" size={18} color={colors.success} />
+            <Text style={[styles.statValue, { color: colors.foreground }]}>{completedToday}/{todayTasks.length}</Text>
+            <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>done</Text>
+          </View>
+        </View>
+
+        {/* ── AI Insight ── */}
+        {aiInsight ? (
+          <View style={[styles.insightCard, { backgroundColor: colors.card, borderColor: colors.primary + "30" }]}>
+            <View style={styles.insightHeader}>
+              <LinearGradient colors={["#6366F1", "#8B5CF6"]} style={styles.raiPill}>
+                <Text style={styles.raiPillText}>RAI</Text>
+              </LinearGradient>
+              <Text style={[styles.insightLabel, { color: colors.mutedForeground }]}>AI Insight</Text>
+            </View>
+            <Text style={[styles.insightText, { color: colors.foreground }]}>{aiInsight}</Text>
+          </View>
+        ) : (
+          <View style={[styles.insightCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={[styles.insightSkeleton, { backgroundColor: colors.border }]} />
+            <View style={[styles.insightSkeletonShort, { backgroundColor: colors.border }]} />
+          </View>
+        )}
+
+        {/* ── Today's Schedule ── */}
+        <View style={styles.body}>
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Today's Schedule</Text>
-            <TouchableOpacity onPress={() => { setEditingTask(undefined); setShowTaskSheet(true); }}>
-              <View style={[styles.addBtn, { backgroundColor: colors.primary }]}>
-                <Ionicons name="add" size={18} color="#FFF" />
-              </View>
+            <TouchableOpacity
+              onPress={() => { setEditingTask(undefined); setShowTaskSheet(true); }}
+              style={[styles.addBtn, { backgroundColor: colors.primary }]}
+            >
+              <Ionicons name="add" size={18} color="#FFF" />
             </TouchableOpacity>
           </View>
 
           {todayTasks.length === 0 ? (
             <View style={[styles.emptyState, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <Ionicons name="calendar-outline" size={32} color={colors.mutedForeground} />
-              <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No tasks scheduled today</Text>
-              <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Add a task and let RAI schedule it for you</Text>
+              <View style={[styles.emptyIcon, { backgroundColor: colors.primary + "18" }]}>
+                <Feather name="calendar" size={28} color={colors.primary} />
+              </View>
+              <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No tasks today</Text>
+              <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Let RAI auto-schedule your first task</Text>
               <TouchableOpacity
                 onPress={() => setShowTaskSheet(true)}
                 style={[styles.emptyBtn, { backgroundColor: colors.primary }]}
               >
-                <Ionicons name="flash" size={16} color="#FFF" />
-                <Text style={styles.emptyBtnText}>Auto-schedule a task</Text>
+                <Ionicons name="flash" size={15} color="#FFF" />
+                <Text style={styles.emptyBtnText}>Add a task</Text>
               </TouchableOpacity>
             </View>
           ) : (
@@ -204,13 +222,14 @@ export default function HomeScreen() {
 
           {unscheduled.length > 0 && (
             <>
-              <View style={styles.sectionHeader}>
+              <View style={[styles.sectionHeader, { marginTop: 4 }]}>
                 <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Unscheduled</Text>
-                <TouchableOpacity onPress={() => unscheduled.forEach((t) => scheduleTask(t.id))}>
-                  <View style={[styles.scheduleAllBtn, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
-                    <Ionicons name="flash" size={14} color={colors.primary} />
-                    <Text style={[styles.scheduleAllText, { color: colors.primary }]}>Auto-schedule all</Text>
-                  </View>
+                <TouchableOpacity
+                  onPress={() => unscheduled.forEach((t) => scheduleTask(t.id))}
+                  style={[styles.scheduleAllBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+                >
+                  <Ionicons name="flash" size={13} color={colors.primary} />
+                  <Text style={[styles.scheduleAllText, { color: colors.primary }]}>Auto-schedule</Text>
                 </TouchableOpacity>
               </View>
               {unscheduled.map((task) => (
@@ -227,17 +246,18 @@ export default function HomeScreen() {
         </View>
       </ScrollView>
 
-      <View style={[styles.fabContainer, { paddingBottom: insets.bottom + 70, ...(Platform.OS === "web" ? { paddingBottom: 100 } : {}) }]}>
+      {/* ── FAB ── */}
+      <View style={[styles.fab, { paddingBottom: insets.bottom + 72, ...(Platform.OS === "web" ? { paddingBottom: 96 } : {}) }]}>
         <TouchableOpacity
           onPress={() => router.push("/focus")}
-          style={[styles.startFocusBtn, { backgroundColor: colors.primary }]}
+          style={[styles.focusBtn, { backgroundColor: colors.primary }]}
         >
           <Ionicons name="play" size={18} color="#FFF" />
-          <Text style={styles.startFocusText}>Start Focus</Text>
+          <Text style={styles.focusBtnText}>Start Focus</Text>
         </TouchableOpacity>
         <TouchableOpacity
           onPress={() => { setEditingTask(undefined); setShowTaskSheet(true); }}
-          style={[styles.micBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+          style={[styles.addFab, { backgroundColor: colors.card, borderColor: colors.border }]}
         >
           <Ionicons name="add" size={22} color={colors.primary} />
         </TouchableOpacity>
@@ -255,48 +275,59 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: { paddingHorizontal: 20, paddingBottom: 20, gap: 16 },
-  topBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  logoRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  logoMark: { width: 28, height: 28, borderRadius: 8, alignItems: "center", justifyContent: "center" },
-  logoMarkText: { fontSize: 14, fontFamily: "Inter_700Bold", color: "#FFF" },
-  logoText: { fontSize: 20, fontFamily: "Inter_700Bold", letterSpacing: 3 },
-  topActions: { flexDirection: "row", gap: 8 },
-  iconBtn: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: "center", justifyContent: "center" },
-  avatar: { width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  avatarText: { fontSize: 11, fontFamily: "Inter_700Bold", color: "#FFF" },
-  heroCard: { gap: 8 },
-  heroInner: { borderRadius: 16, borderWidth: 1, padding: 20, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  heroLeft: { gap: 4 },
-  focusLabel: { fontSize: 11, fontFamily: "Inter_600SemiBold", letterSpacing: 1 },
-  focusScore: { fontSize: 40, fontFamily: "Inter_700Bold", lineHeight: 48 },
-  raiTier: { fontSize: 13, fontFamily: "Inter_500Medium" },
-  progressText: { fontSize: 16, fontFamily: "Inter_700Bold" },
-  dangerBanner: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 10, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 8 },
+
+  header: { paddingHorizontal: 20, paddingBottom: 20 },
+  topRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  greeting: { fontSize: 13, fontFamily: "Inter_400Regular", marginBottom: 2 },
+  userName: { fontSize: 24, fontFamily: "Inter_700Bold" },
+  topActions: { flexDirection: "row", gap: 10, alignItems: "center" },
+  iconBtn: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  avatarText: { fontSize: 15, fontFamily: "Inter_700Bold", color: "#FFF" },
+
+  cardSection: { paddingHorizontal: 20, gap: 10, marginBottom: 4 },
+  scoreCard: { borderRadius: 20, padding: 24, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  scoreLeft: { gap: 6 },
+  scoreLabelText: { fontSize: 11, fontFamily: "Inter_600SemiBold", color: "rgba(255,255,255,0.65)", letterSpacing: 1.2 },
+  scoreBigNumber: { fontSize: 52, fontFamily: "Inter_700Bold", color: "#FFF", lineHeight: 58 },
+  tierBadge: { alignSelf: "flex-start", borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
+  tierText: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: "#FFF" },
+  ringPercent: { fontSize: 18, fontFamily: "Inter_700Bold", color: "#FFF" },
+
+  dangerBanner: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 12, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 10 },
   dangerText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
-  statsRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-around", paddingVertical: 4 },
-  statItem: { alignItems: "center", gap: 2 },
-  statValue: { fontSize: 18, fontFamily: "Inter_700Bold" },
+
+  statsRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-around", marginHorizontal: 20, marginVertical: 16, borderRadius: 16, borderWidth: 1, paddingVertical: 16 },
+  statItem: { alignItems: "center", gap: 3, flex: 1 },
+  statValue: { fontSize: 20, fontFamily: "Inter_700Bold" },
   statLabel: { fontSize: 11, fontFamily: "Inter_400Regular" },
-  statDivider: { width: 1, height: 28 },
-  body: { padding: 20, gap: 16 },
-  insightCard: { borderRadius: 14, borderWidth: 1, padding: 16, gap: 8 },
-  insightHeader: { flexDirection: "row", alignItems: "center", gap: 6 },
-  raiDot: { width: 6, height: 6, borderRadius: 3 },
-  insightLabel: { fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 1 },
+  statDivider: { width: 1, height: 32 },
+
+  insightCard: { marginHorizontal: 20, marginBottom: 4, borderRadius: 16, borderWidth: 1, padding: 16, gap: 10 },
+  insightHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
+  raiPill: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
+  raiPillText: { fontSize: 10, fontFamily: "Inter_700Bold", color: "#FFF", letterSpacing: 0.5 },
+  insightLabel: { fontSize: 12, fontFamily: "Inter_500Medium" },
   insightText: { fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 22 },
+  insightSkeleton: { height: 12, borderRadius: 6, width: "90%" },
+  insightSkeletonShort: { height: 12, borderRadius: 6, width: "65%", marginTop: 8 },
+
+  body: { paddingHorizontal: 20, paddingTop: 16, gap: 12 },
   sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   sectionTitle: { fontSize: 17, fontFamily: "Inter_700Bold" },
-  addBtn: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center" },
-  emptyState: { borderRadius: 16, borderWidth: 1, padding: 32, alignItems: "center", gap: 10 },
+  addBtn: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center" },
+
+  emptyState: { borderRadius: 18, borderWidth: 1, padding: 32, alignItems: "center", gap: 8 },
+  emptyIcon: { width: 60, height: 60, borderRadius: 30, alignItems: "center", justifyContent: "center", marginBottom: 4 },
   emptyTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold" },
   emptyDesc: { fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "center" },
-  emptyBtn: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 10, paddingHorizontal: 20, paddingVertical: 10, marginTop: 6 },
-  emptyBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: "#FFF" },
-  scheduleAllBtn: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 8, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 6 },
+  emptyBtn: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 12, paddingHorizontal: 22, paddingVertical: 12, marginTop: 8 },
+  emptyBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#FFF" },
+
+  scheduleAllBtn: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 10, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 7 },
   scheduleAllText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
-  fabContainer: { position: "absolute", bottom: 0, left: 0, right: 0, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 12, paddingHorizontal: 20 },
-  startFocusBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 14, paddingVertical: 14 },
-  startFocusText: { fontSize: 15, fontFamily: "Inter_700Bold", color: "#FFF" },
-  micBtn: { width: 50, height: 50, borderRadius: 25, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+
+  fab: { position: "absolute", bottom: 0, left: 0, right: 0, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 20 },
+  focusBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 16, paddingVertical: 16 },
+  focusBtnText: { fontSize: 15, fontFamily: "Inter_700Bold", color: "#FFF" },
+  addFab: { width: 52, height: 52, borderRadius: 26, borderWidth: 1, alignItems: "center", justifyContent: "center" },
 });
