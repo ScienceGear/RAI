@@ -402,13 +402,11 @@ export default function CalendarScreen() {
     .onEnd((e) => {
       "worklet";
       if (e.translationY > 80 || e.velocityY > 700) {
-        aiSheetY.value = withSpring(800, { damping: 20 }, () => {
-          runOnJS(setShowAIChat)(false);
-          aiSheetY.value = 0;
-        });
+        aiSheetY.value = 0;
         runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Light);
+        runOnJS(setShowAIChat)(false);
       } else {
-        aiSheetY.value = withSpring(0, { damping: 22, stiffness: 220 });
+        aiSheetY.value = withSpring(0, { damping: 25, stiffness: 300 });
       }
     });
   const timelineRef = useRef<ScrollView>(null);
