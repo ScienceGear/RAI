@@ -1,12 +1,14 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl,
-  useColorScheme, Platform, Modal, Pressable,
+  useColorScheme, Platform, Modal, Pressable, Animated,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons, Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
+
+import * as Haptics from "expo-haptics";
 
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/contexts/AppContext";
@@ -23,6 +25,52 @@ function getGreeting() {
   if (h < 12) return "Good morning";
   if (h < 17) return "Good afternoon";
   return "Good evening";
+}
+
+function QuickChip({
+  label, icon, color, onPress,
+}: {
+  label: string; icon: string; color: string; onPress: () => void;
+}) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const glow  = useRef(new Animated.Value(0)).current;
+
+  const pressIn = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Animated.parallel([
+      Animated.spring(scale, { toValue: 0.88, useNativeDriver: true, speed: 40, bounciness: 6 }),
+      Animated.timing(glow,  { toValue: 1, duration: 80, useNativeDriver: false }),
+    ]).start();
+  };
+
+  const pressOut = () => {
+    Animated.parallel([
+      Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 18, bounciness: 14 }),
+      Animated.timing(glow,  { toValue: 0, duration: 200, useNativeDriver: false }),
+    ]).start();
+  };
+
+  const bgColor = glow.interpolate({ inputRange: [0, 1], outputRange: [color + "18", color + "38"] });
+  const borderColor = glow.interpolate({ inputRange: [0, 1], outputRange: [color + "33", color + "88"] });
+
+  return (
+    <Animated.View style={[styles.quickChip, { transform: [{ scale }], backgroundColor: bgColor, borderColor }]}>
+      <TouchableOpacity
+        onPress={onPress}
+        onPressIn={pressIn}
+        onPressOut={pressOut}
+        activeOpacity={1}
+        style={styles.quickChipInner}
+      >
+        <View style={[styles.quickChipIcon, { backgroundColor: color + "28" }]}>
+          <Ionicons name={icon as keyof typeof Ionicons.glyphMap} size={20} color={color} />
+        </View>
+        <Text style={[styles.quickChipText, { color }]} numberOfLines={1} adjustsFontSizeToFit>
+          {label}
+        </Text>
+      </TouchableOpacity>
+    </Animated.View>
+  );
 }
 
 export default function HomeScreen() {
@@ -220,20 +268,14 @@ export default function HomeScreen() {
 
         {/* ── Quick Access ── */}
         <View style={styles.quickRow}>
-          {[
-            { label: "Goals", icon: "flag", color: "#8B5CF6", onPress: () => router.push("/goals") },
-            { label: "Achievements", icon: "trophy", color: "#F59E0B", onPress: () => router.push("/achievements") },
-            { label: "Diary", icon: "journal", color: "#10B981", onPress: () => router.push("/diary") },
-          ].map((item) => (
-            <TouchableOpacity
-              key={item.label}
-              onPress={item.onPress}
-              style={[styles.quickChip, { backgroundColor: item.color + "18", borderColor: item.color + "33" }]}
-              activeOpacity={0.7}
-            >
-              <Ionicons name={item.icon as keyof typeof Ionicons.glyphMap} size={16} color={item.color} />
-              <Text style={[styles.quickChipText, { color: item.color }]}>{item.label}</Text>
-            </TouchableOpacity>
+          {(
+            [
+              { label: "Goals",        icon: "flag",    color: "#8B5CF6", onPress: () => router.push("/goals") },
+              { label: "Achievements", icon: "trophy",  color: "#F59E0B", onPress: () => router.push("/achievements") },
+              { label: "Diary",        icon: "journal", color: "#10B981", onPress: () => router.push("/diary") },
+            ] as const
+          ).map((item) => (
+            <QuickChip key={item.label} {...item} />
           ))}
         </View>
 
@@ -409,9 +451,11 @@ const styles = StyleSheet.create({
   insightSkeleton: { height: 12, borderRadius: 6, width: "90%" },
   insightSkeletonShort: { height: 12, borderRadius: 6, width: "65%", marginTop: 8 },
 
-  quickRow: { flexDirection: "row", gap: 8, paddingHorizontal: 20, marginBottom: 20 },
-  quickChip: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 12, borderWidth: 1, paddingVertical: 11 },
-  quickChipText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  quickRow: { flexDirection: "row", gap: 10, paddingHorizontal: 20, marginBottom: 20 },
+  quickChip: { flex: 1, borderRadius: 16, borderWidth: 1, overflow: "hidden" },
+  quickChipInner: { alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 14, paddingHorizontal: 6 },
+  quickChipIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  quickChipText: { fontSize: 12, fontFamily: "Inter_700Bold", textAlign: "center", minWidth: 0, flexShrink: 1 },
 
   focusSection: { paddingHorizontal: 20, marginBottom: 12 },
   startFocusBtn: { borderRadius: 16, overflow: "hidden" },
