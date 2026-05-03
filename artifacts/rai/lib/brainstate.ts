@@ -102,76 +102,122 @@ export function computeBrainState(params: {
 }
 
 /**
- * Compute danger hours from actual usage patterns.
- * Danger hours = hours where focus sessions are rarely started (historically low productivity).
+ * Format hour (0-23) as readable AM/PM label, e.g. 14 → "2 PM"
  */
-export function computeDangerZoneHours(focusSessions: FocusSession[], moodLogs: MoodLog[]): number[] {
-  if (focusSessions.length < 5) {
-    // Not enough data — return typical distraction hours
-    return [14, 15, 22, 23];
-  }
-
-  // Count productive activity per hour
-  const hourProductivity: Record<number, { sessions: number; minutes: number; count: number }> = {};
-  for (let h = 0; h < 24; h++) {
-    hourProductivity[h] = { sessions: 0, minutes: 0, count: 0 };
-  }
-
-  focusSessions.forEach((s) => {
-    const h = new Date(s.startedAt).getHours();
-    hourProductivity[h].sessions += 1;
-    hourProductivity[h].minutes += s.completedMinutes;
-    hourProductivity[h].count += 1;
-  });
-
-  // Mood penalty for low-mood hours
-  moodLogs.forEach((m) => {
-    const h = new Date(m.timestamp).getHours();
-    if (hourProductivity[h] && m.mood <= 2) {
-      hourProductivity[h].sessions -= 0.5; // treat low mood as negative signal
-    }
-  });
-
-  // Hours with zero sessions are candidates; also score-rank all hours
-  const activeHours = Object.values(hourProductivity).filter((h) => h.count > 0);
-  if (activeHours.length === 0) return [14, 15, 22, 23];
-
-  const avgMinutes = activeHours.reduce((a, h) => a + h.minutes, 0) / activeHours.length;
-
-  const dangerHours: number[] = [];
-  for (let h = 0; h < 24; h++) {
-    const data = hourProductivity[h];
-    // Skip sleep hours (0–5)
-    if (h >= 0 && h < 6) continue;
-    // Mark as danger if: zero sessions ever OR significantly below average
-    if (data.sessions <= 0 || (data.count > 0 && data.minutes < avgMinutes * 0.4)) {
-      dangerHours.push(h);
-    }
-  }
-
-  // Cap at 6 danger hours, prefer historically worst
-  return dangerHours.slice(0, 6);
+export function fmtHour(h: number): string {
+  if (h === 0) return "12 AM";
+  if (h === 12) return "12 PM";
+  return h < 12 ? `${h} AM` : `${h - 12} PM`;
 }
 
 /**
- * Get the list of "distraction patterns" based on most-skipped task times.
+ * Convert an array of hours into human-readable time ranges.
+ * e.g. [14, 15, 22, 23] → "2–4 PM · 10 PM–12 AM"
  */
-export function computeDistractionPatterns(tasks: Task[], focusSessions: FocusSession[]): string[] {
-  // Without real app usage data, infer from skipped task patterns by hour
+export function formatDangerHours(hours: number[]): string {
+  if (hours.length === 0) return "None detected";
+  const sorted = [...hours].sort((a, b) => a - b);
+  const ranges: [number, number][] = [];
+  let start = sorted[0], end = sorted[0];
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i] === end + 1) { end = sorted[i]; }
+    else { ranges.push([start, end]); start = sorted[i]; end = sorted[i]; }
+  }
+  ranges.push([start, end]);
+
+  return ranges.map(([s, e]) => {
+    const startLabel = fmtHour(s);
+    const endH = e + 1;
+    const endLabel = endH === 24 ? "12 AM" : fmtHour(endH);
+    // Same period (both AM or both PM) — shorten: "2–4 PM" instead of "2 PM–4 PM"
+    const sPeriod = s < 12 ? "AM" : "PM";
+    const ePeriod = endH < 12 ? "AM" : (endH === 24 ? "AM" : "PM");
+    if (s === e) return startLabel;
+    if (sPeriod === ePeriod) {
+      const sNum = s === 0 ? 12 : s <= 12 ? s : s - 12;
+      const eNum = endH === 0 ? 12 : endH <= 12 ? endH : endH - 12;
+      return `${sNum}–${eNum} ${sPeriod}`;
+    }
+    return `${startLabel}–${endLabel}`;
+  }).join(" · ");
+}
+
+/**
+ * Compute danger hours from actual focus session patterns.
+ * Strategy: only mark hours where the user HAS worked before but was low-output.
+ * Never marks hours the user simply doesn't work (e.g., 3 AM).
+ */
+export function computeDangerZoneHours(focusSessions: FocusSession[], moodLogs: MoodLog[]): number[] {
+  if (focusSessions.length < 5) {
+    return [14, 15, 22, 23]; // sensible bootstrap defaults
+  }
+
+  // Accumulate focus minutes per hour across all history
+  const hourMinutes: number[] = new Array(24).fill(0);
+  const hourCount: number[] = new Array(24).fill(0);
+
+  focusSessions.forEach((s) => {
+    const h = new Date(s.startedAt).getHours();
+    hourMinutes[h] += s.completedMinutes;
+    hourCount[h] += 1;
+  });
+
+  // Hours the user actually works (at least 1 session ever)
+  const workedHours = Array.from({ length: 24 }, (_, h) => h).filter(
+    (h) => hourCount[h] > 0
+  );
+  if (workedHours.length === 0) return [14, 15, 22, 23];
+
+  // Peak output hour as reference
+  const peakMinutes = Math.max(...workedHours.map((h) => hourMinutes[h]));
+  if (peakMinutes === 0) return [14, 15, 22, 23];
+
+  // Danger = worked before but productivity < 30% of peak
+  let dangerHours = workedHours
+    .filter((h) => hourMinutes[h] < peakMinutes * 0.3)
+    .sort((a, b) => hourMinutes[a] - hourMinutes[b]) // worst first
+    .slice(0, 4);
+
+  // Also add low-mood hours that overlap with worked hours
+  const lowMoodHours = moodLogs
+    .filter((m) => m.mood <= 2)
+    .map((m) => new Date(m.timestamp).getHours())
+    .filter((h) => workedHours.includes(h) && !dangerHours.includes(h));
+
+  dangerHours = [...new Set([...dangerHours, ...lowMoodHours])].slice(0, 6);
+  return dangerHours.length > 0 ? dangerHours : [14, 15];
+}
+
+/**
+ * Compute per-hour productivity score (0–100) across all history — useful for heatmap.
+ */
+export function computeHourlyProductivity(focusSessions: FocusSession[]): number[] {
+  const hourMinutes: number[] = new Array(24).fill(0);
+  focusSessions.forEach((s) => {
+    const h = new Date(s.startedAt).getHours();
+    hourMinutes[h] += s.completedMinutes;
+  });
+  const peak = Math.max(...hourMinutes, 1);
+  return hourMinutes.map((m) => Math.round((m / peak) * 100));
+}
+
+/**
+ * Get the list of distraction time windows from skipped task patterns.
+ */
+export function computeDistractionPatterns(tasks: Task[], _focusSessions: FocusSession[]): string[] {
   const skipsByHour: Record<number, number> = {};
   tasks.forEach((t) => {
     if (t.skippedCount > 0 && t.scheduledTime) {
       const h = parseInt(t.scheduledTime.split(":")[0], 10);
-      skipsByHour[h] = (skipsByHour[h] ?? 0) + t.skippedCount;
+      if (!isNaN(h)) skipsByHour[h] = (skipsByHour[h] ?? 0) + t.skippedCount;
     }
   });
   const worstHours = Object.entries(skipsByHour)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 3)
-    .map(([h]) => `${h}:00–${parseInt(h, 10) + 1}:00`);
+    .map(([h]) => formatDangerHours([parseInt(h, 10)]));
 
-  if (worstHours.length === 0) {
-    return ["After lunch (13–15h)", "Evening scroll (20–23h)", "Late night (22–0h)"];
-  }
-  return worstHours;
+  return worstHours.length > 0
+    ? worstHours
+    : ["After lunch (1–3 PM)", "Evening scroll (8–11 PM)", "Late night (10 PM–12 AM)"];
 }

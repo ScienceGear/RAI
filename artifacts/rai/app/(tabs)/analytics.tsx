@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, Linking, Alert } from "react-native";
+import React, { useState, useMemo, useEffect } from "react";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, Alert } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -9,6 +9,8 @@ import { useApp } from "@/contexts/AppContext";
 import { ProgressRing } from "@/components/ProgressRing";
 import { getRaiScoreTier, getCategoryColor } from "@/constants/categories";
 import { xpToNextLevel, getLevelTitle } from "@/lib/xp";
+import { formatDangerHours, computeHourlyProductivity } from "@/lib/brainstate";
+import { UsageStats, AppUsage } from "@/modules/usage-stats";
 
 type Tab = "score" | "screentime" | "productivity";
 
@@ -33,6 +35,11 @@ export default function AnalyticsScreen() {
   const insets = useSafeAreaInsets();
   const { profile, tasks, focusSessions, dangerZone, brainState, todayFocusScore } = useApp();
   const [activeTab, setActiveTab] = useState<Tab>("score");
+  const [usagePermission, setUsagePermission] = useState<"granted" | "denied" | "unavailable">(
+    UsageStats.isAvailable() ? (UsageStats.hasPermission() ? "granted" : "denied") : "unavailable"
+  );
+  const [appUsage, setAppUsage] = useState<AppUsage[]>([]);
+  const [loadingUsage, setLoadingUsage] = useState(false);
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const scoreTier = getRaiScoreTier(profile.raiScore);
@@ -80,6 +87,27 @@ export default function AnalyticsScreen() {
   }, [tasks, focusSessions]);
 
   const maxDone = Math.max(...last7Days.map((d) => d.total), 1);
+
+  // Hourly productivity from focus session history (0–100 per hour)
+  const hourlyProductivity = useMemo(() => computeHourlyProductivity(focusSessions), [focusSessions]);
+
+  // Load real device screen time when permission is available
+  useEffect(() => {
+    if (usagePermission !== "granted") return;
+    setLoadingUsage(true);
+    UsageStats.getTodayAppUsage()
+      .then((data) => setAppUsage(data))
+      .finally(() => setLoadingUsage(false));
+  }, [usagePermission]);
+
+  const handleGrantUsage = async () => {
+    await UsageStats.requestPermission();
+    // Check again after returning from settings
+    setTimeout(() => {
+      const granted = UsageStats.hasPermission();
+      setUsagePermission(granted ? "granted" : "denied");
+    }, 1000);
+  };
 
   const renderScoreTab = () => (
     <View style={styles.tabContent}>
@@ -144,9 +172,11 @@ export default function AnalyticsScreen() {
     </View>
   );
 
+  const dangerLabel = formatDangerHours(dangerZone.dangerHours);
+
   const renderScreenTimeTab = () => (
     <View style={styles.tabContent}>
-      {/* What RAI can track */}
+      {/* Today's focus summary */}
       <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
         <View style={styles.cardTitleRow}>
           <Ionicons name="time" size={16} color={colors.primary} />
@@ -185,61 +215,145 @@ export default function AnalyticsScreen() {
         </View>
       </View>
 
-      {/* Android device usage note */}
-      <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+      {/* Danger Zone — redesigned with proper time ranges */}
+      <View style={[styles.card, { backgroundColor: "#1A0A0A", borderColor: "#EF444430" }]}>
         <View style={styles.cardTitleRow}>
-          <Ionicons name="warning" size={16} color="#F97316" />
-          <Text style={[styles.cardTitle, { color: colors.foreground }]}>Danger Zone: {dangerZone.dangerHours.map((h) => `${h}:00`).join("–")}</Text>
-        </View>
-        <Text style={[styles.dangerNote, { color: colors.mutedForeground }]}>
-          {dangerZone.isBootstrapEstimate ? "Based on typical patterns. RAI learns your personal zone over 7 days." : `Personalised from ${dangerZone.dataPointsCount} days of your data.`}
-        </Text>
-        <View style={styles.heatmapGrid}>
-          {Array.from({ length: 24 }, (_, h) => (
-            <HeatmapCell key={h} value={dangerZone.dangerHours.includes(h) ? 80 : 20} max={100} />
-          ))}
-        </View>
-        <View style={styles.heatmapLabels}>
-          {["12a", "6a", "12p", "6p"].map((l) => (
-            <Text key={l} style={[styles.heatmapLabel, { color: colors.mutedForeground }]}>{l}</Text>
-          ))}
-        </View>
-      </View>
-
-      {/* Platform note */}
-      <View style={[styles.infoBox, { backgroundColor: colors.card, borderColor: colors.primary + "30" }]}>
-        <Ionicons name="information-circle" size={20} color={colors.primary} />
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.infoTitle, { color: colors.foreground }]}>About device screen time</Text>
-          <Text style={[styles.infoText, { color: colors.mutedForeground }]}>
-            {Platform.OS === "android"
-              ? "RAI can request Android Usage Stats access to read your app usage. This requires manual permission in Settings."
-              : "iOS restricts screen time access to Apple's own apps. RAI tracks your in-app productivity data instead."}
-          </Text>
-          {Platform.OS === "android" && (
-            <TouchableOpacity
-              onPress={async () => { await Haptics.selectionAsync(); Linking.openSettings(); }}
-              style={[styles.infoBtn, { backgroundColor: colors.primary }]}
-            >
-              <Text style={styles.infoBtnText}>Open Usage Settings</Text>
-            </TouchableOpacity>
+          <Ionicons name="warning" size={16} color="#EF4444" />
+          <Text style={[styles.cardTitle, { color: colors.foreground }]}>Danger Zone</Text>
+          {dangerZone.isBootstrapEstimate && (
+            <View style={[styles.learnBadge, { backgroundColor: "#EF444420" }]}>
+              <Text style={[styles.learnBadgeText, { color: "#EF4444" }]}>Learning</Text>
+            </View>
           )}
         </View>
+
+        {/* Time range pills */}
+        <View style={styles.dangerPillRow}>
+          {dangerZone.dangerHours.length === 0 ? (
+            <Text style={[styles.dangerNote, { color: colors.mutedForeground }]}>No danger hours detected yet</Text>
+          ) : (
+            (() => {
+              // Group consecutive hours into ranges
+              const sorted = [...dangerZone.dangerHours].sort((a, b) => a - b);
+              const ranges: [number, number][] = [];
+              let s = sorted[0], e = sorted[0];
+              for (let i = 1; i < sorted.length; i++) {
+                if (sorted[i] === e + 1) { e = sorted[i]; }
+                else { ranges.push([s, e]); s = sorted[i]; e = sorted[i]; }
+              }
+              ranges.push([s, e]);
+              const fmtH = (h: number) => h === 0 ? "12am" : h === 12 ? "12pm" : h < 12 ? `${h}am` : `${h - 12}pm`;
+              return ranges.map(([rs, re]) => (
+                <View key={rs} style={[styles.dangerPill, { backgroundColor: "#EF444420", borderColor: "#EF444440" }]}>
+                  <Ionicons name="flash" size={11} color="#EF4444" />
+                  <Text style={[styles.dangerPillText, { color: "#EF4444" }]}>
+                    {rs === re ? fmtH(rs) : `${fmtH(rs)}–${fmtH(re + 1)}`}
+                  </Text>
+                </View>
+              ));
+            })()
+          )}
+        </View>
+
+        {/* 24-hour productivity heatmap */}
+        <View>
+          <Text style={[styles.heatmapTitle, { color: colors.mutedForeground }]}>Hourly focus intensity</Text>
+          <View style={styles.timelineBar}>
+            {hourlyProductivity.map((score, h) => {
+              const isDanger = dangerZone.dangerHours.includes(h);
+              const isSleep = h < 6 || h >= 23;
+              const barColor = isDanger ? "#EF4444" : isSleep ? "#1E1E2E" : `#6366F1`;
+              const opacity = isSleep ? 0.3 : Math.max(0.15, score / 100);
+              return (
+                <View key={h} style={[styles.timelineCell, { backgroundColor: barColor, opacity }]} />
+              );
+            })}
+          </View>
+          <View style={styles.timelineLabels}>
+            {["12a", "6a", "12p", "6p", "11p"].map((l) => (
+              <Text key={l} style={[styles.heatmapLabel, { color: colors.mutedForeground }]}>{l}</Text>
+            ))}
+          </View>
+        </View>
+
+        <Text style={[styles.dangerNote, { color: colors.mutedForeground }]}>
+          {dangerZone.isBootstrapEstimate
+            ? "Showing common distraction windows. RAI personalises this after 5+ focus sessions."
+            : `Personalised from ${focusSessions.length} focus sessions. Red bars = your weak hours.`}
+        </Text>
       </View>
 
-      <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-        <Text style={[styles.cardTitle, { color: colors.foreground }]}>Distraction Patterns</Text>
-        {dangerZone.topDistractionApps.slice(0, 4).map((app, i) => (
-          <View key={app} style={styles.appRow}>
-            <View style={[styles.appRank, { backgroundColor: colors.secondary }]}>
-              <Text style={[styles.appRankText, { color: colors.mutedForeground }]}>{i + 1}</Text>
-            </View>
-            <Text style={[styles.appName, { color: colors.foreground }]}>{app}</Text>
-            <MiniBar value={4 - i} max={4} color="#EF4444" />
+      {/* Android Usage Stats — real app screen time */}
+      {usagePermission === "denied" && (
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={styles.cardTitleRow}>
+            <Ionicons name="phone-portrait" size={16} color={colors.primary} />
+            <Text style={[styles.cardTitle, { color: colors.foreground }]}>Device Screen Time</Text>
           </View>
-        ))}
-        <Text style={[styles.dangerNote, { color: colors.mutedForeground }]}>Update this list in your profile settings.</Text>
-      </View>
+          <Text style={[styles.dangerNote, { color: colors.mutedForeground }]}>
+            Grant Usage Access to see which apps are eating your time today.
+          </Text>
+          <TouchableOpacity
+            onPress={async () => { await Haptics.selectionAsync(); handleGrantUsage(); }}
+            style={[styles.grantBtn, { backgroundColor: colors.primary }]}
+          >
+            <Ionicons name="lock-open" size={15} color="#FFF" />
+            <Text style={styles.grantBtnText}>Grant Usage Access</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {usagePermission === "granted" && (
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={styles.cardTitleRow}>
+            <Ionicons name="phone-portrait" size={16} color={colors.primary} />
+            <Text style={[styles.cardTitle, { color: colors.foreground }]}>Today's App Usage</Text>
+          </View>
+          {loadingUsage ? (
+            <Text style={[styles.dangerNote, { color: colors.mutedForeground }]}>Loading…</Text>
+          ) : appUsage.length === 0 ? (
+            <Text style={[styles.dangerNote, { color: colors.mutedForeground }]}>No significant app usage yet today.</Text>
+          ) : (
+            appUsage.slice(0, 6).map((app, i) => {
+              const maxMins = appUsage[0]?.totalMinutes ?? 1;
+              const isBad = app.category === "social" || app.category === "entertainment" || app.category === "games";
+              return (
+                <View key={app.packageName} style={styles.appRow}>
+                  <View style={[styles.appRank, { backgroundColor: colors.secondary }]}>
+                    <Text style={[styles.appRankText, { color: colors.mutedForeground }]}>{i + 1}</Text>
+                  </View>
+                  <View style={{ flex: 1, gap: 3 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                      <Text style={[styles.appName, { color: colors.foreground, width: undefined, flex: 1 }]} numberOfLines={1}>{app.appName}</Text>
+                      {isBad && <Ionicons name="warning" size={12} color="#EF4444" />}
+                    </View>
+                    <MiniBar value={app.totalMinutes} max={maxMins} color={isBad ? "#EF4444" : colors.primary} />
+                  </View>
+                  <Text style={[styles.appMins, { color: isBad ? "#EF4444" : colors.mutedForeground }]}>
+                    {app.totalMinutes >= 60 ? `${Math.floor(app.totalMinutes / 60)}h ${app.totalMinutes % 60}m` : `${app.totalMinutes}m`}
+                  </Text>
+                </View>
+              );
+            })
+          )}
+        </View>
+      )}
+
+      {/* Distraction patterns from task skips */}
+      {dangerZone.topDistractionApps.length > 0 && (
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={[styles.cardTitle, { color: colors.foreground }]}>Distraction Patterns</Text>
+          {dangerZone.topDistractionApps.slice(0, 4).map((pattern, i) => (
+            <View key={pattern + i} style={styles.appRow}>
+              <View style={[styles.appRank, { backgroundColor: colors.secondary }]}>
+                <Text style={[styles.appRankText, { color: colors.mutedForeground }]}>{i + 1}</Text>
+              </View>
+              <Text style={[styles.appName, { color: colors.foreground, flex: 1 }]}>{pattern}</Text>
+              <MiniBar value={4 - i} max={4} color="#EF4444" />
+            </View>
+          ))}
+        </View>
+      )}
     </View>
   );
 
@@ -403,6 +517,18 @@ const styles = StyleSheet.create({
   infoText: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 20 },
   infoBtn: { borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8, alignSelf: "flex-start", marginTop: 8 },
   infoBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: "#FFF" },
+  learnBadge: { borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3, marginLeft: "auto" },
+  learnBadgeText: { fontSize: 10, fontFamily: "Inter_600SemiBold" },
+  dangerPillRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  dangerPill: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 20, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 5 },
+  dangerPillText: { fontSize: 13, fontFamily: "Inter_700Bold" },
+  heatmapTitle: { fontSize: 11, fontFamily: "Inter_400Regular", marginBottom: 6 },
+  timelineBar: { flexDirection: "row", height: 28, borderRadius: 6, overflow: "hidden", gap: 1 },
+  timelineCell: { flex: 1, borderRadius: 2 },
+  timelineLabels: { flexDirection: "row", justifyContent: "space-between", marginTop: 4 },
+  grantBtn: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 10, alignSelf: "flex-start" },
+  grantBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: "#FFF" },
+  appMins: { fontSize: 12, fontFamily: "Inter_600SemiBold", minWidth: 40, textAlign: "right" },
   appRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   appRank: { width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   appRankText: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
