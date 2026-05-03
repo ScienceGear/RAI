@@ -10,6 +10,7 @@ import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/contexts/AppContext";
 import { ProgressRing } from "@/components/ProgressRing";
 import { getCategoryColor } from "@/constants/categories";
+import { MoodCheckInModal } from "@/components/MoodCheckInModal";
 import { Task, TimerMode } from "@/types";
 
 const DURATIONS: Record<TimerMode, number> = {
@@ -43,6 +44,7 @@ export default function FocusScreen() {
   const [sessionStart, setSessionStart] = useState<Date | null>(null);
   const [xpEarned, setXpEarned] = useState(0);
   const [isComplete, setIsComplete] = useState(false);
+  const [showMoodCheck, setShowMoodCheck] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const totalSeconds = DURATIONS[selectedMode] * 60;
@@ -110,6 +112,7 @@ export default function FocusScreen() {
     setIsRunning(false);
     setTimeRemaining(DURATIONS[selectedMode] * 60);
     setSessionStart(null);
+    setTimeout(() => setShowMoodCheck(true), 400);
   };
 
   const handleComplete = useCallback(async () => {
@@ -133,6 +136,7 @@ export default function FocusScreen() {
     });
 
     if (selectedTask) await completeTask(selectedTask.id);
+    setTimeout(() => setShowMoodCheck(true), 600);
   }, [selectedMode, selectedTask, sessionStart]);
 
   const minutes = Math.floor(timeRemaining / 60);
@@ -274,6 +278,11 @@ export default function FocusScreen() {
           )}
         </ScrollView>
       </View>
+      <MoodCheckInModal
+        visible={showMoodCheck}
+        taskTitle={selectedTask?.title}
+        onClose={() => setShowMoodCheck(false)}
+      />
     </LinearGradient>
   );
 }

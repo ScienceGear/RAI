@@ -10,6 +10,7 @@ import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/contexts/AppContext";
 import { TaskCard } from "@/components/TaskCard";
 import { TaskSheet } from "@/components/TaskSheet";
+import { MoodCheckInModal } from "@/components/MoodCheckInModal";
 import { Task } from "@/types";
 
 const ALL_FILTER = "All";
@@ -24,6 +25,7 @@ export default function TasksScreen() {
   const [editingTask, setEditingTask] = useState<Task | undefined>();
   const [activeFilter, setActiveFilter] = useState(ALL_FILTER);
   const [searchQuery, setSearchQuery] = useState("");
+  const [moodCheckTask, setMoodCheckTask] = useState<Task | null>(null);
 
   const categories = useMemo(() => {
     const cats = new Set<string>();
@@ -52,6 +54,11 @@ export default function TasksScreen() {
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
 
+  const handleComplete = (task: Task) => {
+    completeTask(task.id);
+    setMoodCheckTask(task);
+  };
+
   const renderSection = (title: string, sectionTasks: Task[], showSchedule = false) => {
     if (sectionTasks.length === 0) return null;
     return (
@@ -66,7 +73,7 @@ export default function TasksScreen() {
           <TaskCard
             key={task.id}
             task={task}
-            onComplete={() => completeTask(task.id)}
+            onComplete={() => handleComplete(task)}
             onEdit={() => { setEditingTask(task); setShowTaskSheet(true); }}
             onDelete={() => deleteTask(task.id)}
             showDate={showSchedule}
@@ -147,7 +154,7 @@ export default function TasksScreen() {
                   <TaskCard
                     key={task.id}
                     task={task}
-                    onComplete={() => completeTask(task.id)}
+                    onComplete={() => handleComplete(task)}
                     onEdit={() => { setEditingTask(task); setShowTaskSheet(true); }}
                     onDelete={() => deleteTask(task.id)}
                   />
@@ -188,6 +195,12 @@ export default function TasksScreen() {
         visible={showTaskSheet}
         task={editingTask}
         onClose={() => { setShowTaskSheet(false); setEditingTask(undefined); }}
+      />
+
+      <MoodCheckInModal
+        visible={!!moodCheckTask}
+        taskTitle={moodCheckTask?.title}
+        onClose={() => setMoodCheckTask(null)}
       />
     </View>
   );
