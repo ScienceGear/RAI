@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Modal, Platform } from "react-native";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -8,6 +8,7 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/contexts/AppContext";
 import { ProgressRing } from "@/components/ProgressRing";
+import { SwipeableSheet } from "@/components/SwipeableSheet";
 import { Goal, Milestone } from "@/types";
 
 function genId() {
@@ -145,11 +146,14 @@ export default function GoalsScreen() {
         )}
       </ScrollView>
 
-      <Modal visible={showAddGoal} transparent animationType="slide" onRequestClose={() => setShowAddGoal(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalSheet, { backgroundColor: colors.card }]}>
-            <View style={[styles.modalHandle, { backgroundColor: colors.border }]} />
-            <Text style={[styles.modalTitle, { color: colors.foreground }]}>New Goal</Text>
+      <SwipeableSheet
+        visible={showAddGoal}
+        onClose={() => setShowAddGoal(false)}
+        backgroundColor={colors.card}
+        handleColor={colors.border}
+      >
+        <View style={styles.modalSheetInner}>
+          <Text style={[styles.modalTitle, { color: colors.foreground }]}>New Goal</Text>
 
             <TextInput
               style={[styles.modalInput, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.secondary }]}
@@ -194,12 +198,11 @@ export default function GoalsScreen() {
               </TouchableOpacity>
             </View>
 
-            <TouchableOpacity onPress={handleCreateGoal} style={[styles.createBtn, { backgroundColor: colors.primary }]} disabled={!goalTitle.trim()}>
-              <Text style={styles.createBtnText}>Create Goal</Text>
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity onPress={handleCreateGoal} style={[styles.createBtn, { backgroundColor: colors.primary }]} disabled={!goalTitle.trim()}>
+            <Text style={styles.createBtnText}>Create Goal</Text>
+          </TouchableOpacity>
         </View>
-      </Modal>
+      </SwipeableSheet>
     </View>
   );
 }
@@ -229,9 +232,7 @@ const styles = StyleSheet.create({
   milestoneStep: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
   milestoneDot: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, alignItems: "center", justifyContent: "center", marginTop: 1 },
   milestoneTitle: { flex: 1, fontSize: 13, fontFamily: "Inter_500Medium", lineHeight: 20 },
-  modalOverlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.7)" },
-  modalSheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: 40, gap: 14 },
-  modalHandle: { width: 36, height: 4, borderRadius: 2, alignSelf: "center", marginBottom: 8 },
+  modalSheetInner: { padding: 20, paddingBottom: 40, gap: 14 },
   modalTitle: { fontSize: 20, fontFamily: "Inter_700Bold" },
   modalInput: { borderRadius: 12, borderWidth: 1, padding: 14, fontSize: 15, fontFamily: "Inter_400Regular" },
   milestoneRow: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 10, padding: 10, marginBottom: 6 },

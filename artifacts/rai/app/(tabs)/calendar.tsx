@@ -389,6 +389,28 @@ export default function CalendarScreen() {
   const [isAILoading, setIsAILoading] = useState(false);
   const [expandedTask, setExpandedTask] = useState<string | null>(null);
   const scrollRef = useRef<ScrollView>(null);
+
+  const aiSheetY = useSharedValue(0);
+  const aiSheetAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: aiSheetY.value }],
+  }));
+  const aiDismissGesture = Gesture.Pan()
+    .onUpdate((e) => {
+      "worklet";
+      if (e.translationY > 0) aiSheetY.value = e.translationY;
+    })
+    .onEnd((e) => {
+      "worklet";
+      if (e.translationY > 80 || e.velocityY > 700) {
+        aiSheetY.value = withSpring(800, { damping: 20 }, () => {
+          runOnJS(setShowAIChat)(false);
+          aiSheetY.value = 0;
+        });
+        runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Light);
+      } else {
+        aiSheetY.value = withSpring(0, { damping: 22, stiffness: 220 });
+      }
+    });
   const timelineRef = useRef<ScrollView>(null);
   const chatScrollRef = useRef<ScrollView>(null);
 
@@ -934,21 +956,27 @@ export default function CalendarScreen() {
       <Modal visible={showAIChat} transparent animationType="slide" onRequestClose={() => setShowAIChat(false)}>
         <View style={styles.aiModalContainer}>
           <Pressable style={styles.aiModalBackdrop} onPress={() => setShowAIChat(false)} />
-          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={[styles.aiSheet, { backgroundColor: colors.background, paddingBottom: insets.bottom + 8 }]}>
-            <View style={[styles.aiHeader, { borderBottomColor: colors.border }]}>
-              <View style={styles.aiHeaderLeft}>
-                <View style={[styles.aiHeaderIcon, { backgroundColor: colors.primary }]}>
-                  <Ionicons name="sparkles" size={16} color="#FFF" />
-                </View>
-                <View>
-                  <Text style={[styles.aiHeaderTitle, { color: colors.foreground }]}>RAI Scheduler</Text>
-                  <Text style={[styles.aiHeaderSub, { color: colors.mutedForeground }]}>AI with full access to your schedule</Text>
-                </View>
+          <Animated.View style={[styles.aiAnimWrapper, aiSheetAnimStyle]}>
+            <GestureDetector gesture={aiDismissGesture}>
+              <View style={[styles.aiHandleArea, { backgroundColor: colors.background }]}>
+                <View style={[styles.aiHandlePill, { backgroundColor: colors.border }]} />
               </View>
-              <TouchableOpacity onPress={() => setShowAIChat(false)}>
-                <Ionicons name="close" size={22} color={colors.mutedForeground} />
-              </TouchableOpacity>
-            </View>
+            </GestureDetector>
+            <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={[styles.aiSheet, { backgroundColor: colors.background, paddingBottom: insets.bottom + 8 }]}>
+              <View style={[styles.aiHeader, { borderBottomColor: colors.border }]}>
+                <View style={styles.aiHeaderLeft}>
+                  <View style={[styles.aiHeaderIcon, { backgroundColor: colors.primary }]}>
+                    <Ionicons name="sparkles" size={16} color="#FFF" />
+                  </View>
+                  <View>
+                    <Text style={[styles.aiHeaderTitle, { color: colors.foreground }]}>RAI Scheduler</Text>
+                    <Text style={[styles.aiHeaderSub, { color: colors.mutedForeground }]}>AI with full access to your schedule</Text>
+                  </View>
+                </View>
+                <TouchableOpacity onPress={() => setShowAIChat(false)}>
+                  <Ionicons name="close" size={22} color={colors.mutedForeground} />
+                </TouchableOpacity>
+              </View>
             <ScrollView ref={chatScrollRef} style={styles.aiMessages} contentContainerStyle={{ padding: 16, gap: 12 }} showsVerticalScrollIndicator={false}>
               {chatMessages.map((msg) => (
                 <View key={msg.id} style={[styles.msgRow, msg.role === "user" ? styles.msgRowUser : styles.msgRowAI]}>
@@ -994,7 +1022,8 @@ export default function CalendarScreen() {
                 <Ionicons name="send" size={18} color={chatInput.trim() ? "#FFF" : colors.mutedForeground} />
               </TouchableOpacity>
             </View>
-          </KeyboardAvoidingView>
+            </KeyboardAvoidingView>
+          </Animated.View>
         </View>
       </Modal>
 
@@ -1196,7 +1225,10 @@ const styles = StyleSheet.create({
   // AI modal
   aiModalContainer: { flex: 1, justifyContent: "flex-end" },
   aiModalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "#00000088" },
-  aiSheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: "85%", minHeight: "60%" },
+  aiAnimWrapper: { borderTopLeftRadius: 24, borderTopRightRadius: 24, overflow: "hidden" },
+  aiHandleArea: { alignItems: "center", paddingTop: 12, paddingBottom: 6, borderTopLeftRadius: 24, borderTopRightRadius: 24 },
+  aiHandlePill: { width: 36, height: 4, borderRadius: 2 },
+  aiSheet: { maxHeight: "85%", minHeight: "60%" },
   aiHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 16, borderBottomWidth: 1 },
   aiHeaderLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
   aiHeaderIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },

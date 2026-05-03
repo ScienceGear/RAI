@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch,
-  Alert, Platform, Linking, Modal, Share, TextInput, ActivityIndicator,
+  Alert, Platform, Linking, Share, TextInput, ActivityIndicator,
 } from "react-native";
+import { SwipeableSheet } from "@/components/SwipeableSheet";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -100,10 +101,8 @@ function FocusDurationModal({ visible, current, onSelect, onClose }: {
 }) {
   const colors = useColors();
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
-      <View style={[styles.sheet, { backgroundColor: colors.card, borderColor: colors.border }]}>
-        <View style={[styles.sheetHandle, { backgroundColor: colors.border }]} />
+    <SwipeableSheet visible={visible} onClose={onClose} backgroundColor={colors.card} handleColor={colors.border}>
+      <View style={styles.sheetInner}>
         <Text style={[styles.sheetTitle, { color: colors.foreground }]}>Default Focus Duration</Text>
         <Text style={[styles.sheetSub, { color: colors.mutedForeground }]}>Pre-fills the timer when you start a new focus session</Text>
         <View style={styles.focusGrid}>
@@ -125,7 +124,7 @@ function FocusDurationModal({ visible, current, onSelect, onClose }: {
           })}
         </View>
       </View>
-    </Modal>
+    </SwipeableSheet>
   );
 }
 
@@ -155,10 +154,8 @@ function SleepModal({ visible, wakeUp, bedtime, onSave, onClose }: {
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
-      <View style={[styles.sheet, { backgroundColor: colors.card, borderColor: colors.border }]}>
-        <View style={[styles.sheetHandle, { backgroundColor: colors.border }]} />
+    <SwipeableSheet visible={visible} onClose={onClose} backgroundColor={colors.card} handleColor={colors.border}>
+      <View style={styles.sheetInner}>
         <Text style={[styles.sheetTitle, { color: colors.foreground }]}>Sleep Schedule</Text>
         <Text style={[styles.sheetSub, { color: colors.mutedForeground }]}>
           RAI avoids scheduling tasks during sleep and protects your wind-down time before bed.
@@ -202,7 +199,7 @@ function SleepModal({ visible, wakeUp, bedtime, onSave, onClose }: {
           <Text style={styles.saveBtnText}>Save Schedule</Text>
         </TouchableOpacity>
       </View>
-    </Modal>
+    </SwipeableSheet>
   );
 }
 
@@ -587,9 +584,7 @@ const styles = StyleSheet.create({
   stepperVal: { fontSize: 13, fontFamily: "Inter_600SemiBold", minWidth: 48, textAlign: "center" },
 
   // Modals
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.6)" },
-  sheet: { position: "absolute", bottom: 0, left: 0, right: 0, borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, padding: 24, paddingBottom: 40 },
-  sheetHandle: { width: 40, height: 4, borderRadius: 2, alignSelf: "center", marginBottom: 20 },
+  sheetInner: { padding: 24, paddingBottom: 40 },
   sheetTitle: { fontSize: 18, fontFamily: "Inter_700Bold", marginBottom: 6 },
   sheetSub: { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 19, marginBottom: 24 },
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import {
-  View, Text, StyleSheet, Modal, TextInput, TouchableOpacity,
-  ScrollView, KeyboardAvoidingView, Platform, Animated, Switch
+  View, Text, StyleSheet, TextInput, TouchableOpacity,
+  ScrollView, KeyboardAvoidingView, Platform, Switch
 } from "react-native";
 import { Ionicons, Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -11,6 +11,7 @@ import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/contexts/AppContext";
 import { categorizeTaskLocal, parseDurationFromText, parsePriorityFromText } from "@/lib/categorizer";
 import { CATEGORIES, getCategoryColor } from "@/constants/categories";
+import { SwipeableSheet } from "@/components/SwipeableSheet";
 
 interface Props {
   visible: boolean;
@@ -71,16 +72,7 @@ export function TaskSheet({ visible, task, onClose, onSave, prefillTime }: Props
   const [notes, setNotes] = useState(task?.notes ?? "");
   const [isSaving, setIsSaving] = useState(false);
   const [showDeadlinePicker, setShowDeadlinePicker] = useState(false);
-  const slideAnim = useRef(new Animated.Value(400)).current;
   const parseTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (visible) {
-      Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, damping: 20, stiffness: 200 }).start();
-    } else {
-      Animated.timing(slideAnim, { toValue: 400, duration: 200, useNativeDriver: true }).start();
-    }
-  }, [visible]);
 
   useEffect(() => {
     if (task) {
@@ -155,29 +147,28 @@ export function TaskSheet({ visible, task, onClose, onSave, prefillTime }: Props
     }
   };
 
-  if (!visible) return null;
-
   const isDeadlineOverdue = deadline && new Date(deadline + "T00:00:00") < new Date(new Date().toDateString());
 
   return (
-    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <TouchableOpacity style={StyleSheet.absoluteFill} onPress={onClose} />
-        <Animated.View style={[styles.sheet, { backgroundColor: colors.card, transform: [{ translateY: slideAnim }] }]}>
-          <View style={[styles.handle, { backgroundColor: colors.border }]} />
+    <SwipeableSheet
+      visible={visible}
+      onClose={onClose}
+      backgroundColor={colors.card}
+      handleColor={colors.border}
+      maxHeight="92%"
+    >
+      <View style={styles.sheetHeader}>
+        <Text style={[styles.sheetTitle, { color: colors.foreground }]}>
+          {task ? "Edit Task" : "New Task"}
+        </Text>
+        <TouchableOpacity onPress={onClose}>
+          <Ionicons name="close" size={22} color={colors.mutedForeground} />
+        </TouchableOpacity>
+      </View>
 
-          <View style={styles.sheetHeader}>
-            <Text style={[styles.sheetTitle, { color: colors.foreground }]}>
-              {task ? "Edit Task" : "New Task"}
-            </Text>
-            <TouchableOpacity onPress={onClose}>
-              <Ionicons name="close" size={22} color={colors.mutedForeground} />
-            </TouchableOpacity>
-          </View>
-
-          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
-            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-              <View style={styles.form}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          <View style={styles.form}>
 
                 {/* Title */}
                 <TextInput
@@ -376,22 +367,17 @@ export function TaskSheet({ visible, task, onClose, onSave, prefillTime }: Props
                   </TouchableOpacity>
                 </View>
 
-              </View>
-            </ScrollView>
-          </KeyboardAvoidingView>
-        </Animated.View>
-      </View>
-    </Modal>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SwipeableSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.6)" },
-  sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 16, paddingBottom: 32, maxHeight: "92%" },
-  handle: { width: 36, height: 4, borderRadius: 2, alignSelf: "center", marginBottom: 16 },
-  sheetHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 },
+  sheetHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16, paddingHorizontal: 16, paddingTop: 4 },
   sheetTitle: { fontSize: 18, fontFamily: "Inter_700Bold" },
-  form: { gap: 12 },
+  form: { gap: 12, paddingHorizontal: 16, paddingBottom: 32 },
   titleInput: { borderRadius: 12, borderWidth: 1, padding: 14, fontSize: 15, fontFamily: "Inter_400Regular", minHeight: 56, textAlignVertical: "top" },
   sectionLabel: { fontSize: 12, fontFamily: "Inter_600SemiBold", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: -4 },
   categoryRow: { flexDirection: "row" },

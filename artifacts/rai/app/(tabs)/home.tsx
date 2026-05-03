@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl,
-  useColorScheme, Platform, Modal, Pressable, Animated,
+  useColorScheme, Platform, Animated,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons, Feather } from "@expo/vector-icons";
@@ -14,6 +14,7 @@ import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/contexts/AppContext";
 import { TaskCard } from "@/components/TaskCard";
 import { TaskSheet } from "@/components/TaskSheet";
+import { SwipeableSheet } from "@/components/SwipeableSheet";
 import { MoodCheckIn } from "@/components/MoodCheckIn";
 import { ProgressRing } from "@/components/ProgressRing";
 import { Task } from "@/types";
@@ -344,18 +345,17 @@ export default function HomeScreen() {
         </View>
       </ScrollView>
 
-      {/* ── Focus Task Picker Modal ── */}
-      <Modal
+      {/* ── Focus Task Picker ── */}
+      <SwipeableSheet
         visible={showFocusPicker}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowFocusPicker(false)}
+        onClose={() => setShowFocusPicker(false)}
+        backgroundColor={colors.card}
+        handleColor={colors.border}
+        maxHeight="75%"
       >
-        <Pressable style={styles.modalOverlay} onPress={() => setShowFocusPicker(false)}>
-          <Pressable style={[styles.modalSheet, { backgroundColor: colors.card }]} onPress={() => {}}>
-            <View style={[styles.modalHandle, { backgroundColor: colors.border }]} />
-            <Text style={[styles.modalTitle, { color: colors.foreground }]}>What are you working on?</Text>
-            <Text style={[styles.modalSubtitle, { color: colors.mutedForeground }]}>Pick a task to link to this focus session</Text>
+        <View style={styles.modalSheetInner}>
+          <Text style={[styles.modalTitle, { color: colors.foreground }]}>What are you working on?</Text>
+          <Text style={[styles.modalSubtitle, { color: colors.mutedForeground }]}>Pick a task to link to this focus session</Text>
 
             <ScrollView style={styles.taskList} showsVerticalScrollIndicator={false}>
               {incompleteTodayTasks.length === 0 ? (
@@ -388,17 +388,16 @@ export default function HomeScreen() {
               )}
             </ScrollView>
 
-            <TouchableOpacity
-              onPress={() => handleStartFocus()}
-              style={[styles.skipBtn, { borderColor: colors.border }]}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="play-circle-outline" size={20} color={colors.mutedForeground} />
-              <Text style={[styles.skipText, { color: colors.mutedForeground }]}>Just focus — no task</Text>
-            </TouchableOpacity>
-          </Pressable>
-        </Pressable>
-      </Modal>
+          <TouchableOpacity
+            onPress={() => handleStartFocus()}
+            style={[styles.skipBtn, { borderColor: colors.border }]}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="play-circle-outline" size={20} color={colors.mutedForeground} />
+            <Text style={[styles.skipText, { color: colors.mutedForeground }]}>Just focus — no task</Text>
+          </TouchableOpacity>
+        </View>
+      </SwipeableSheet>
 
       <TaskSheet
         visible={showTaskSheet}
@@ -478,9 +477,7 @@ const styles = StyleSheet.create({
   scheduleAllBtn: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 10, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 7 },
   scheduleAllText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
 
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" },
-  modalSheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 20, paddingTop: 12, paddingBottom: 36, maxHeight: "75%" },
-  modalHandle: { width: 36, height: 4, borderRadius: 2, alignSelf: "center", marginBottom: 20 },
+  modalSheetInner: { paddingHorizontal: 20, paddingBottom: 36 },
   modalTitle: { fontSize: 20, fontFamily: "Inter_700Bold", marginBottom: 4 },
   modalSubtitle: { fontSize: 13, fontFamily: "Inter_400Regular", marginBottom: 20 },
 
