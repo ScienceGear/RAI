@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  TextInput, Platform, Alert, ActivityIndicator, Share,
+  TextInput, Platform, Alert, ActivityIndicator, Share, Image,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -115,8 +115,12 @@ export default function SquadScreen() {
                 <Text style={[styles.rankNum, { color: colors.mutedForeground }]}>{i + 1}</Text>
               )}
             </View>
-            <View style={[styles.memberAvatar, { backgroundColor: color }]}>
-              <Text style={styles.memberAvatarText}>{member.name[0]?.toUpperCase()}</Text>
+            <View style={[styles.memberAvatar, { backgroundColor: member.avatarUrl ? "transparent" : color }]}>
+              {member.avatarUrl ? (
+                <Image source={{ uri: member.avatarUrl }} style={styles.memberAvatarImg} />
+              ) : (
+                <Text style={styles.memberAvatarText}>{member.name[0]?.toUpperCase()}</Text>
+              )}
             </View>
             <View style={styles.memberInfo}>
               <Text style={[styles.memberName, { color: colors.foreground }]}>
@@ -250,8 +254,12 @@ export default function SquadScreen() {
               const color = uidToColor(m.id);
               return (
                 <View key={m.id} style={[styles.memberRow, { borderBottomColor: colors.border }]}>
-                  <View style={[styles.memberAvatar, { backgroundColor: color, width: 36, height: 36, borderRadius: 18 }]}>
-                    <Text style={[styles.memberAvatarText, { fontSize: 14 }]}>{m.name[0]?.toUpperCase()}</Text>
+                  <View style={[styles.memberAvatar, { backgroundColor: m.avatarUrl ? "transparent" : color, width: 36, height: 36, borderRadius: 18 }]}>
+                    {m.avatarUrl ? (
+                      <Image source={{ uri: m.avatarUrl }} style={{ width: 36, height: 36, borderRadius: 18 }} />
+                    ) : (
+                      <Text style={[styles.memberAvatarText, { fontSize: 14 }]}>{m.name[0]?.toUpperCase()}</Text>
+                    )}
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.memberName, { color: colors.foreground, fontSize: 14 }]}>
@@ -405,8 +413,9 @@ const styles = StyleSheet.create({
   rankContainer: { width: 32, alignItems: "center" },
   rankNum: { fontSize: 15, fontFamily: "Inter_700Bold" },
   crownBadge: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center" },
-  memberAvatar: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+  memberAvatar: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", overflow: "hidden" },
   memberAvatarText: { fontSize: 16, fontFamily: "Inter_700Bold", color: "#FFF" },
+  memberAvatarImg: { width: 40, height: 40, borderRadius: 20 },
   memberInfo: { flex: 1 },
   memberName: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
   memberMeta: { fontSize: 11, fontFamily: "Inter_400Regular" },

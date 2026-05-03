@@ -166,7 +166,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         xp: m.xp,
         streak: m.streak,
         lastActive: m.lastActive,
-        avatarUrl: undefined,
+        avatarUrl: m.avatarUrl,
       })),
     };
   }
@@ -503,6 +503,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         creatorRaiScore: profile.raiScore,
         creatorXP: profile.xp,
         creatorStreak: profile.streak,
+        creatorAvatarUrl: profile.avatarUrl,
       });
       await firestoreSet(uid, "squad", { squadId: squadDoc.id });
       subscribeToSquad(squadDoc.id);
@@ -521,6 +522,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       memberRaiScore: profile.raiScore,
       memberXP: profile.xp,
       memberStreak: profile.streak,
+      memberAvatarUrl: profile.avatarUrl,
     });
     if (!doc) return false;
     await firestoreSet(uid, "squad", { squadId: doc.id });
@@ -546,6 +548,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       raiScore: profile.raiScore,
       xp: profile.xp,
       streak: profile.streak,
+      avatarUrl: profile.avatarUrl,
     });
   }, [profile.raiScore, profile.xp, profile.streak]);
 
