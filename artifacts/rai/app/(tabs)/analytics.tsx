@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useEffect } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, Alert } from "react-native";
+import React, { useState, useMemo, useEffect, useRef } from "react";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, Alert, AppState } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -40,6 +40,21 @@ export default function AnalyticsScreen() {
   );
   const [appUsage, setAppUsage] = useState<AppUsage[]>([]);
   const [loadingUsage, setLoadingUsage] = useState(false);
+  const appStateRef = useRef(AppState.currentState);
+
+  // Re-check usage permission whenever the app comes back to the foreground
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (nextState) => {
+      if (appStateRef.current.match(/inactive|background/) && nextState === "active") {
+        if (UsageStats.isAvailable()) {
+          const granted = UsageStats.hasPermission();
+          setUsagePermission(granted ? "granted" : "denied");
+        }
+      }
+      appStateRef.current = nextState;
+    });
+    return () => sub.remove();
+  }, []);
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const scoreTier = getRaiScoreTier(profile.raiScore);

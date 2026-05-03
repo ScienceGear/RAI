@@ -8,6 +8,7 @@ import * as Haptics from "expo-haptics";
 
 import { useApp } from "@/contexts/AppContext";
 import { requestNotificationPermission, scheduleDailyBriefing, scheduleDangerZoneAlert } from "@/lib/notifications";
+import { UsageStats } from "@/modules/usage-stats";
 
 const PERMISSIONS = [
   {
@@ -74,9 +75,18 @@ export default function Permissions() {
         await updateProfile({ notificationsGranted: false });
       }
     } else if (current.id === "usage") {
-      if (Platform.OS === "android") {
-        await Linking.openSettings();
-        await updateProfile({ usageStatsGranted: true });
+      if (Platform.OS === "android" && UsageStats.isAvailable()) {
+        await UsageStats.requestPermission();
+        // Check if granted after returning from settings
+        const granted = UsageStats.hasPermission();
+        await updateProfile({ usageStatsGranted: granted });
+        if (!granted) {
+          Alert.alert(
+            "Usage Access Needed",
+            "Go to Usage Access in your device Settings and enable it for RAI to track your screen time.",
+            [{ text: "OK" }]
+          );
+        }
       } else {
         await updateProfile({ usageStatsGranted: true });
       }

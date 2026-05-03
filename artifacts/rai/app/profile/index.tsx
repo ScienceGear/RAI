@@ -328,7 +328,12 @@ export default function ProfileScreen() {
                 onPress={() => {
                   Alert.alert("Log out", "Are you sure you want to log out?", [
                     { text: "Cancel", style: "cancel" },
-                    { text: "Log out", style: "destructive", onPress: () => signOut() },
+                    {
+                      text: "Log out", style: "destructive", onPress: async () => {
+                        await signOut();
+                        router.replace("/auth");
+                      }
+                    },
                   ]);
                 }}
                 style={[styles.quickLink, { backgroundColor: "#EF444412", borderColor: "#EF444430" }]}
