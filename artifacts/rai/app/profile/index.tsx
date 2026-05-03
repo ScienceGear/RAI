@@ -1,12 +1,13 @@
 import React, { useState, useRef } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Platform, TextInput, Alert, Animated,
+  Platform, TextInput, Alert, Image,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
+import * as ImagePicker from "expo-image-picker";
 
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/contexts/AppContext";
@@ -19,15 +20,6 @@ const AVATAR_COLORS = [
   "#F97316", "#10B981", "#0EA5E9", "#F59E0B",
 ];
 
-function ColorDot({ color, selected, onPress }: { color: string; selected: boolean; onPress: () => void }) {
-  return (
-    <TouchableOpacity
-      onPress={onPress}
-      style={[styles.colorDot, { backgroundColor: color, borderWidth: selected ? 3 : 0, borderColor: "#FFF" }]}
-    />
-  );
-}
-
 export default function ProfileScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -38,6 +30,7 @@ export default function ProfileScreen() {
   const [editName, setEditName] = useState(profile.name);
   const [editAge, setEditAge] = useState(String(profile.age ?? ""));
   const [editColor, setEditColor] = useState(profile.avatarColor ?? "#6366F1");
+  const [editPhotoUri, setEditPhotoUri] = useState<string | undefined>(profile.avatarUrl);
 
   const saveDebounce = useRef<ReturnType<typeof setTimeout>>();
 
@@ -57,12 +50,36 @@ export default function ProfileScreen() {
     setEditName(profile.name);
     setEditAge(String(profile.age ?? ""));
     setEditColor(profile.avatarColor ?? "#6366F1");
+    setEditPhotoUri(profile.avatarUrl);
     setEditing(true);
     Haptics.selectionAsync();
   };
 
   const cancelEdit = () => {
     setEditing(false);
+    Haptics.selectionAsync();
+  };
+
+  const pickPhoto = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission needed", "Allow photo library access to set a profile picture.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+    });
+    if (!result.canceled && result.assets[0]) {
+      setEditPhotoUri(result.assets[0].uri);
+      Haptics.selectionAsync();
+    }
+  };
+
+  const removePhoto = () => {
+    setEditPhotoUri(undefined);
     Haptics.selectionAsync();
   };
 
@@ -79,20 +96,22 @@ export default function ProfileScreen() {
         return;
       }
       const firstName = editName.trim().split(" ")[0];
-      await updateProfile({ name: editName.trim(), firstName, avatarColor: editColor, age: ageNum });
+      await updateProfile({
+        name: editName.trim(),
+        firstName,
+        avatarColor: editColor,
+        avatarUrl: editPhotoUri,
+        age: ageNum,
+      });
       setEditing(false);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }, 300);
   };
 
+  const displayPhotoUri = editing ? editPhotoUri : profile.avatarUrl;
   const avatarColor = editing ? editColor : (profile.avatarColor ?? "#6366F1");
   const initials = (editing ? editName : profile.name)
-    .trim()
-    .split(" ")
-    .map((w) => w[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase() || "U";
+    .trim().split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase() || "U";
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -116,21 +135,33 @@ export default function ProfileScreen() {
 
         {/* ── Hero / Avatar ── */}
         <View style={[styles.heroSection, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
-          <View style={[styles.avatarLarge, { backgroundColor: avatarColor }]}>
-            <Text style={styles.avatarLargeText}>{initials}</Text>
-          </View>
+          <TouchableOpacity onPress={editing ? pickPhoto : undefined} activeOpacity={editing ? 0.7 : 1}>
+            {displayPhotoUri ? (
+              <Image source={{ uri: displayPhotoUri }} style={styles.avatarLarge} />
+            ) : (
+              <View style={[styles.avatarLarge, { backgroundColor: avatarColor }]}>
+                <Text style={styles.avatarLargeText}>{initials}</Text>
+              </View>
+            )}
+            {editing && (
+              <View style={styles.avatarEditBadge}>
+                <Ionicons name="camera" size={14} color="#FFF" />
+              </View>
+            )}
+          </TouchableOpacity>
 
           {editing ? (
-            <View style={styles.colorPicker}>
-              <Text style={[styles.colorPickerLabel, { color: colors.mutedForeground }]}>Avatar color</Text>
-              <View style={styles.colorDotRow}>
-                {AVATAR_COLORS.map((c) => (
-                  <ColorDot
-                    key={c} color={c} selected={editColor === c}
-                    onPress={() => { setEditColor(c); Haptics.selectionAsync(); }}
-                  />
-                ))}
-              </View>
+            <View style={styles.editAvatarActions}>
+              <TouchableOpacity onPress={pickPhoto} style={[styles.avatarActionBtn, { backgroundColor: colors.primary }]}>
+                <Ionicons name="image" size={14} color="#FFF" />
+                <Text style={styles.avatarActionText}>Choose Photo</Text>
+              </TouchableOpacity>
+              {editPhotoUri && (
+                <TouchableOpacity onPress={removePhoto} style={[styles.avatarActionBtn, { backgroundColor: colors.secondary, borderWidth: 1, borderColor: colors.border }]}>
+                  <Ionicons name="trash-outline" size={14} color={colors.mutedForeground} />
+                  <Text style={[styles.avatarActionText, { color: colors.mutedForeground }]}>Remove</Text>
+                </TouchableOpacity>
+              )}
             </View>
           ) : (
             <>
@@ -144,6 +175,21 @@ export default function ProfileScreen() {
                 <Text style={[styles.streakText, { color: colors.foreground }]}>{profile.streak}-day streak</Text>
               </View>
             </>
+          )}
+
+          {editing && !editPhotoUri && (
+            <View style={styles.colorPickerSection}>
+              <Text style={[styles.colorPickerLabel, { color: colors.mutedForeground }]}>Or pick an avatar color</Text>
+              <View style={styles.colorDotRow}>
+                {AVATAR_COLORS.map((c) => (
+                  <TouchableOpacity
+                    key={c}
+                    onPress={() => { setEditColor(c); Haptics.selectionAsync(); }}
+                    style={[styles.colorDot, { backgroundColor: c, borderWidth: editColor === c ? 3 : 0, borderColor: "#FFF" }]}
+                  />
+                ))}
+              </View>
+            </View>
           )}
         </View>
 
@@ -275,20 +321,22 @@ const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1 },
   headerTitle: { fontSize: 18, fontFamily: "Inter_700Bold" },
   saveText: { fontSize: 16, fontFamily: "Inter_600SemiBold" },
-  heroSection: { alignItems: "center", paddingVertical: 32, gap: 8, borderBottomWidth: 1 },
+  heroSection: { alignItems: "center", paddingVertical: 32, gap: 10, borderBottomWidth: 1 },
   avatarLarge: { width: 88, height: 88, borderRadius: 44, alignItems: "center", justifyContent: "center" },
   avatarLargeText: { fontSize: 36, fontFamily: "Inter_700Bold", color: "#FFF" },
+  avatarEditBadge: { position: "absolute", bottom: 2, right: 2, width: 26, height: 26, borderRadius: 13, backgroundColor: "#6366F1", alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "#0A0A0F" },
+  editAvatarActions: { flexDirection: "row", gap: 10, marginTop: 4 },
+  avatarActionBtn: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 },
+  avatarActionText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: "#FFF" },
+  colorPickerSection: { alignItems: "center", gap: 8, marginTop: 4 },
+  colorPickerLabel: { fontSize: 12, fontFamily: "Inter_500Medium" },
+  colorDotRow: { flexDirection: "row", gap: 12 },
+  colorDot: { width: 32, height: 32, borderRadius: 16 },
   userName: { fontSize: 24, fontFamily: "Inter_700Bold" },
   userAge: { fontSize: 14, fontFamily: "Inter_400Regular" },
   userTier: { fontSize: 15, fontFamily: "Inter_500Medium" },
   streakRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   streakText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
-
-  colorPicker: { alignItems: "center", gap: 10, marginTop: 4 },
-  colorPickerLabel: { fontSize: 12, fontFamily: "Inter_500Medium" },
-  colorDotRow: { flexDirection: "row", gap: 12 },
-  colorDot: { width: 32, height: 32, borderRadius: 16 },
-
   fieldGroup: { borderRadius: 16, borderWidth: 1, overflow: "hidden" },
   fieldRow: { flexDirection: "row", alignItems: "center", padding: 14, gap: 12 },
   fieldDivider: { height: 1 },
@@ -298,7 +346,6 @@ const styles = StyleSheet.create({
   fieldInput: { fontSize: 16, fontFamily: "Inter_500Medium", paddingVertical: 0 },
   saveBtn: { borderRadius: 14, paddingVertical: 16, alignItems: "center" },
   saveBtnText: { fontSize: 15, fontFamily: "Inter_700Bold", color: "#FFF" },
-
   content: { padding: 16, gap: 14 },
   levelCard: { flexDirection: "row", gap: 16, borderRadius: 16, borderWidth: 1, padding: 16, alignItems: "center" },
   levelNum: { fontSize: 22, fontFamily: "Inter_700Bold" },

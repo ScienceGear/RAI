@@ -1,13 +1,14 @@
 import React, { useState, useRef } from "react";
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView,
-  Animated, KeyboardAvoidingView, Platform,
+  Animated, KeyboardAvoidingView, Platform, Image, Alert,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import * as ImagePicker from "expo-image-picker";
 
 import { useApp } from "@/contexts/AppContext";
 import { useColors } from "@/hooks/useColors";
@@ -15,7 +16,7 @@ import { getDefaultEnergyProfile } from "@/lib/scheduler";
 import { generateOnboardingSummary } from "@/lib/ai";
 import { PrimaryFocus, Chronotype } from "@/types";
 
-type Step = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
+type Step = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 
 const FOCUS_OPTIONS: { value: PrimaryFocus; label: string; desc: string }[] = [
   { value: "studying", label: "Studying / Exams", desc: "Courses, exams, research" },
@@ -45,6 +46,11 @@ const MOTIVATION_OPTIONS = [
   "Passion for the work", "Fear of regret", "Competitive drive",
 ];
 
+const AVATAR_COLORS = [
+  "#6366F1", "#8B5CF6", "#EC4899", "#EF4444",
+  "#F97316", "#10B981", "#0EA5E9", "#F59E0B",
+];
+
 export default function Onboarding() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -52,6 +58,10 @@ export default function Onboarding() {
 
   const [step, setStep] = useState<Step>(0);
   const [name, setName] = useState("");
+  // step 1 — profile picture
+  const [pfpUri, setPfpUri] = useState<string | undefined>();
+  const [avatarColor, setAvatarColor] = useState("#6366F1");
+
   const [focus, setFocus] = useState<PrimaryFocus>("mixed");
   const [goalType, setGoalType] = useState("");
   const [struggles, setStruggles] = useState<string[]>([]);
@@ -63,7 +73,7 @@ export default function Onboarding() {
 
   const slideAnim = useRef(new Animated.Value(0)).current;
 
-  const totalSteps = 8;
+  const totalSteps = 9;
 
   const animateForward = () => {
     slideAnim.setValue(300);
@@ -74,7 +84,7 @@ export default function Onboarding() {
     await Haptics.selectionAsync();
     const ns = nextStep !== undefined ? nextStep : (step + 1) as Step;
 
-    if (ns === 7) {
+    if (ns === 8) {
       setLoadingSummary(true);
       const s = await generateOnboardingSummary({ name, focus, goalType, struggles, chronotype, hours, motivation });
       setSummary(s || `Welcome, ${name}! You're focused on ${focus} and ready to build powerful habits. Let's build your first perfect day together.`);
@@ -90,6 +100,8 @@ export default function Onboarding() {
     await updateProfile({
       name,
       firstName: name.split(" ")[0],
+      avatarUrl: pfpUri,
+      avatarColor,
       primaryFocus: focus,
       goalType,
       mainStruggle: struggles,
@@ -107,8 +119,29 @@ export default function Onboarding() {
     setStruggles((prev) => prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]);
   };
 
+  const pickPhoto = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission needed", "Allow photo library access to set a profile picture. You can also skip this.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+    });
+    if (!result.canceled && result.assets[0]) {
+      setPfpUri(result.assets[0].uri);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+  };
+
+  const initials = name.trim().split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase() || "?";
+
   const renderStep = () => {
     switch (step) {
+      // ── Step 0: Name ──────────────────────────────────────────────────────
       case 0:
         return (
           <View style={styles.stepContainer}>
@@ -135,7 +168,73 @@ export default function Onboarding() {
           </View>
         );
 
+      // ── Step 1: Profile Picture ───────────────────────────────────────────
       case 1:
+        return (
+          <View style={styles.stepContainer}>
+            <Text style={[styles.stepTitle, { color: "#FFF" }]}>Add a profile picture</Text>
+            <Text style={[styles.stepSubtitle, { color: "#6B7280" }]}>
+              Let your squad recognize you. You can skip this and do it later.
+            </Text>
+
+            <View style={styles.pfpCenter}>
+              <TouchableOpacity onPress={pickPhoto} style={styles.pfpWrapper} activeOpacity={0.8}>
+                {pfpUri ? (
+                  <Image source={{ uri: pfpUri }} style={styles.pfpImage} />
+                ) : (
+                  <View style={[styles.pfpPlaceholder, { backgroundColor: avatarColor }]}>
+                    <Text style={styles.pfpInitials}>{initials}</Text>
+                  </View>
+                )}
+                <View style={styles.pfpCameraBadge}>
+                  <Ionicons name="camera" size={18} color="#FFF" />
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={pickPhoto}
+                style={[styles.photoBtn, { backgroundColor: "#6366F1" }]}
+              >
+                <Ionicons name="image" size={16} color="#FFF" />
+                <Text style={styles.photoBtnText}>{pfpUri ? "Change Photo" : "Choose from Gallery"}</Text>
+              </TouchableOpacity>
+
+              {pfpUri && (
+                <TouchableOpacity
+                  onPress={() => { setPfpUri(undefined); Haptics.selectionAsync(); }}
+                  style={styles.removePhotoBtn}
+                >
+                  <Text style={{ color: "#6B7280", fontSize: 13, fontFamily: "Inter_500Medium" }}>Remove photo</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {!pfpUri && (
+              <View style={styles.colorSection}>
+                <Text style={{ color: "#6B7280", fontSize: 13, fontFamily: "Inter_500Medium", textAlign: "center" }}>
+                  Or pick an avatar color
+                </Text>
+                <View style={styles.colorRow}>
+                  {AVATAR_COLORS.map((c) => (
+                    <TouchableOpacity
+                      key={c}
+                      onPress={() => { setAvatarColor(c); Haptics.selectionAsync(); }}
+                      style={[styles.colorCircle, { backgroundColor: c, borderWidth: avatarColor === c ? 3 : 0, borderColor: "#FFF" }]}
+                    />
+                  ))}
+                </View>
+              </View>
+            )}
+
+            <TouchableOpacity onPress={() => next(2)} style={[styles.nextBtn, { backgroundColor: "#6366F1" }]}>
+              <Text style={styles.nextBtnText}>{pfpUri ? "Looks great!" : "Skip for now"}</Text>
+              <Ionicons name="arrow-forward" size={18} color="#FFF" />
+            </TouchableOpacity>
+          </View>
+        );
+
+      // ── Step 2: Focus ─────────────────────────────────────────────────────
+      case 2:
         return (
           <View style={styles.stepContainer}>
             <Text style={[styles.stepTitle, { color: "#FFF" }]}>What's your main focus?</Text>
@@ -155,14 +254,15 @@ export default function Onboarding() {
                 </TouchableOpacity>
               ))}
             </View>
-            <TouchableOpacity onPress={() => next()} style={[styles.nextBtn, { backgroundColor: "#6366F1" }]}>
+            <TouchableOpacity onPress={() => next(3)} style={[styles.nextBtn, { backgroundColor: "#6366F1" }]}>
               <Text style={styles.nextBtnText}>Continue</Text>
               <Ionicons name="arrow-forward" size={18} color="#FFF" />
             </TouchableOpacity>
           </View>
         );
 
-      case 2:
+      // ── Step 3: Goal Type ─────────────────────────────────────────────────
+      case 3:
         return (
           <View style={styles.stepContainer}>
             <Text style={[styles.stepTitle, { color: "#FFF" }]}>Tell me more</Text>
@@ -175,14 +275,15 @@ export default function Onboarding() {
               onChangeText={setGoalType}
               autoFocus
             />
-            <TouchableOpacity onPress={() => next(3)} style={[styles.nextBtn, { backgroundColor: "#6366F1" }]}>
+            <TouchableOpacity onPress={() => next(4)} style={[styles.nextBtn, { backgroundColor: "#6366F1" }]}>
               <Text style={styles.nextBtnText}>Continue</Text>
               <Ionicons name="arrow-forward" size={18} color="#FFF" />
             </TouchableOpacity>
           </View>
         );
 
-      case 3:
+      // ── Step 4: Struggles ─────────────────────────────────────────────────
+      case 4:
         return (
           <View style={styles.stepContainer}>
             <Text style={[styles.stepTitle, { color: "#FFF" }]}>What derails you most?</Text>
@@ -201,14 +302,15 @@ export default function Onboarding() {
                 </TouchableOpacity>
               ))}
             </View>
-            <TouchableOpacity onPress={() => next(4)} style={[styles.nextBtn, { backgroundColor: "#6366F1" }]}>
+            <TouchableOpacity onPress={() => next(5)} style={[styles.nextBtn, { backgroundColor: "#6366F1" }]}>
               <Text style={styles.nextBtnText}>Continue</Text>
               <Ionicons name="arrow-forward" size={18} color="#FFF" />
             </TouchableOpacity>
           </View>
         );
 
-      case 4:
+      // ── Step 5: Chronotype ────────────────────────────────────────────────
+      case 5:
         return (
           <View style={styles.stepContainer}>
             <Text style={[styles.stepTitle, { color: "#FFF" }]}>When do you do your best work?</Text>
@@ -219,7 +321,7 @@ export default function Onboarding() {
                   key={opt.hours}
                   onPress={() => setChronotype(opt.value)}
                   style={[styles.listOption, {
-                    backgroundColor: chronotype === opt.value && opt.hours.includes(chronotype === "morning" ? "5" : chronotype === "evening" ? "9 PM" : "12") ? "#6366F133" : "#12121C",
+                    backgroundColor: "#12121C",
                     borderColor: "#1E1E2E",
                   }]}
                 >
@@ -228,14 +330,15 @@ export default function Onboarding() {
                 </TouchableOpacity>
               ))}
             </View>
-            <TouchableOpacity onPress={() => next(5)} style={[styles.nextBtn, { backgroundColor: "#6366F1" }]}>
+            <TouchableOpacity onPress={() => next(6)} style={[styles.nextBtn, { backgroundColor: "#6366F1" }]}>
               <Text style={styles.nextBtnText}>Continue</Text>
               <Ionicons name="arrow-forward" size={18} color="#FFF" />
             </TouchableOpacity>
           </View>
         );
 
-      case 5:
+      // ── Step 6: Hours ─────────────────────────────────────────────────────
+      case 6:
         return (
           <View style={styles.stepContainer}>
             <Text style={[styles.stepTitle, { color: "#FFF" }]}>How many hours can you commit?</Text>
@@ -258,14 +361,15 @@ export default function Onboarding() {
                 ))}
               </View>
             </View>
-            <TouchableOpacity onPress={() => next(6)} style={[styles.nextBtn, { backgroundColor: "#6366F1" }]}>
+            <TouchableOpacity onPress={() => next(7)} style={[styles.nextBtn, { backgroundColor: "#6366F1" }]}>
               <Text style={styles.nextBtnText}>Continue</Text>
               <Ionicons name="arrow-forward" size={18} color="#FFF" />
             </TouchableOpacity>
           </View>
         );
 
-      case 6:
+      // ── Step 7: Motivation ────────────────────────────────────────────────
+      case 7:
         return (
           <View style={styles.stepContainer}>
             <Text style={[styles.stepTitle, { color: "#FFF" }]}>What keeps you going?</Text>
@@ -285,7 +389,7 @@ export default function Onboarding() {
               ))}
             </View>
             <TouchableOpacity
-              onPress={() => motivation && next(7)}
+              onPress={() => motivation && next(8)}
               style={[styles.nextBtn, { backgroundColor: motivation ? "#6366F1" : "#1A1A28" }]}
               disabled={!motivation}
             >
@@ -295,11 +399,18 @@ export default function Onboarding() {
           </View>
         );
 
-      case 7:
+      // ── Step 8: Summary ───────────────────────────────────────────────────
+      case 8:
         return (
           <View style={styles.stepContainer}>
             <View style={styles.completionIcon}>
-              <Text style={{ fontSize: 48 }}>✨</Text>
+              {pfpUri ? (
+                <Image source={{ uri: pfpUri }} style={styles.summaryAvatar} />
+              ) : (
+                <View style={[styles.summaryAvatarPlaceholder, { backgroundColor: avatarColor }]}>
+                  <Text style={styles.summaryAvatarInitials}>{initials}</Text>
+                </View>
+              )}
             </View>
             <Text style={[styles.stepTitle, { color: "#FFF" }]}>Your AI profile is ready</Text>
             {loadingSummary ? (
@@ -330,7 +441,7 @@ export default function Onboarding() {
     <LinearGradient colors={["#0A0A0F", "#0D0B1A", "#130A28"]} style={{ flex: 1 }}>
       <View style={{ flex: 1 }}>
         <View style={[styles.header, { paddingTop: topPad + 8 }]}>
-          {step > 0 && step < 7 && (
+          {step > 0 && step < 8 && (
             <TouchableOpacity onPress={() => setStep((s) => (s - 1) as Step)}>
               <Ionicons name="arrow-back" size={22} color="#6B7280" />
             </TouchableOpacity>
@@ -365,6 +476,27 @@ const styles = StyleSheet.create({
   nameInput: { borderRadius: 14, borderWidth: 1, padding: 16, fontSize: 18, fontFamily: "Inter_400Regular", height: 56 },
   nextBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, borderRadius: 14, paddingVertical: 16 },
   nextBtnText: { fontSize: 16, fontFamily: "Inter_700Bold", color: "#FFF" },
+
+  // PFP step
+  pfpCenter: { alignItems: "center", gap: 16 },
+  pfpWrapper: { position: "relative" },
+  pfpImage: { width: 110, height: 110, borderRadius: 55 },
+  pfpPlaceholder: { width: 110, height: 110, borderRadius: 55, alignItems: "center", justifyContent: "center" },
+  pfpInitials: { fontSize: 40, fontFamily: "Inter_700Bold", color: "#FFF" },
+  pfpCameraBadge: { position: "absolute", bottom: 4, right: 4, width: 30, height: 30, borderRadius: 15, backgroundColor: "#6366F1", alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "#0A0A0F" },
+  photoBtn: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 12, paddingHorizontal: 20, paddingVertical: 12 },
+  photoBtnText: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: "#FFF" },
+  removePhotoBtn: { paddingVertical: 4 },
+  colorSection: { alignItems: "center", gap: 12 },
+  colorRow: { flexDirection: "row", gap: 12 },
+  colorCircle: { width: 34, height: 34, borderRadius: 17 },
+
+  // Summary step
+  completionIcon: { alignItems: "center", marginVertical: 8 },
+  summaryAvatar: { width: 88, height: 88, borderRadius: 44 },
+  summaryAvatarPlaceholder: { width: 88, height: 88, borderRadius: 44, alignItems: "center", justifyContent: "center" },
+  summaryAvatarInitials: { fontSize: 32, fontFamily: "Inter_700Bold", color: "#FFF" },
+
   optionGrid: { gap: 10 },
   optionCard: { borderRadius: 14, borderWidth: 1, padding: 16 },
   optionLabel: { fontSize: 15, fontFamily: "Inter_600SemiBold", marginBottom: 2 },
@@ -382,7 +514,6 @@ const styles = StyleSheet.create({
   hoursBtns: { flexDirection: "row", flexWrap: "wrap", gap: 10, justifyContent: "center" },
   hourBtn: { borderRadius: 10, borderWidth: 1, paddingHorizontal: 20, paddingVertical: 10, minWidth: 56, alignItems: "center" },
   hourBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
-  completionIcon: { alignItems: "center", marginVertical: 8 },
   summaryText: { fontSize: 16, fontFamily: "Inter_400Regular", lineHeight: 26, textAlign: "center" },
   potentialCard: { borderRadius: 14, borderWidth: 1, padding: 20, alignItems: "center", gap: 6 },
   potentialLabel: { fontSize: 13, fontFamily: "Inter_600SemiBold" },

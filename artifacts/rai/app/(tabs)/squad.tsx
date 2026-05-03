@@ -39,6 +39,26 @@ export default function SquadScreen() {
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
 
+  // Login guard
+  if (!firebaseUserId) {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={[styles.header, { paddingTop: topPadding + 8, backgroundColor: colors.background, borderBottomColor: colors.border }]}>
+          <Text style={[styles.headerTitle, { color: colors.foreground }]}>Squad</Text>
+        </View>
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 32, gap: 16 }}>
+          <Ionicons name="people" size={52} color={colors.mutedForeground} />
+          <Text style={{ fontSize: 20, fontFamily: "Inter_700Bold", color: colors.foreground, textAlign: "center" }}>
+            Sign in to join a Squad
+          </Text>
+          <Text style={{ fontSize: 14, fontFamily: "Inter_400Regular", color: colors.mutedForeground, textAlign: "center", lineHeight: 22 }}>
+            Squads let you compete, share progress, and stay accountable with friends. Sign in to get started.
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
   // Build leaderboard from real squad members + yourself if not in squad
   const allMembers = squad
     ? [...squad.members].sort((a, b) => b.raiScore - a.raiScore)

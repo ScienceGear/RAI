@@ -9,7 +9,7 @@ import { categorizeTaskLocal } from "@/lib/categorizer";
 import { calculateTaskXP, levelFromXP, calculateRaiScore, DEFAULT_ACHIEVEMENTS } from "@/lib/xp";
 import { computeBrainState, computeDangerZoneHours, computeDistractionPatterns, BrainState } from "@/lib/brainstate";
 import {
-  firestoreSet, firestoreGetAll, firestoreSetAll, firestoreSubscribe,
+  firestoreSet, firestoreGet, firestoreGetAll, firestoreSetAll, firestoreSubscribe,
   createSquad as fsCreateSquad, joinSquad as fsJoinSquad,
   listenToSquad, updateSquadMember, SquadDoc, uidToColor,
 } from "@/lib/firebase";
@@ -234,11 +234,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     unsubsRef.current = [taskSub, goalSub, profileSub, activitySub];
 
-    // 4. Subscribe to squad if user has one
-    const squadRef = (cloud["squad"] as { squadId: string } | null);
-    if (squadRef?.squadId) {
-      subscribeToSquad(squadRef.squadId);
-    }
+    // 4. Subscribe to squad if user has one (fetched separately — not in FIRESTORE_KEYS)
+    try {
+      const squadRef = await firestoreGet<{ squadId: string }>(uid, "squad");
+      if (squadRef?.squadId) {
+        subscribeToSquad(squadRef.squadId);
+      }
+    } catch {}
 
     setIsLoaded(true);
   }
@@ -492,18 +494,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // ─── Squad operations ───────────────────────────────────────────────────────
 
   const createSquad = useCallback(async (name: string) => {
-    if (!uid) return;
-    const doc = await fsCreateSquad({
-      squadName: name,
-      creatorUid: uid,
-      creatorName: profile.name,
-      creatorRaiScore: profile.raiScore,
-      creatorXP: profile.xp,
-      creatorStreak: profile.streak,
-    });
-    // Save squad ref to user's Firestore data
-    await firestoreSet(uid, "squad", { squadId: doc.id });
-    subscribeToSquad(doc.id);
+    if (!uid) throw new Error("Not authenticated");
+    try {
+      const squadDoc = await fsCreateSquad({
+        squadName: name,
+        creatorUid: uid,
+        creatorName: profile.name,
+        creatorRaiScore: profile.raiScore,
+        creatorXP: profile.xp,
+        creatorStreak: profile.streak,
+      });
+      await firestoreSet(uid, "squad", { squadId: squadDoc.id });
+      subscribeToSquad(squadDoc.id);
+    } catch (e) {
+      console.warn("createSquad error:", e);
+      throw e;
+    }
   }, [uid, profile]);
 
   const joinSquadByCode = useCallback(async (code: string): Promise<boolean> => {
