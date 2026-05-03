@@ -279,17 +279,6 @@ export default function HomeScreen() {
         </View>
       </ScrollView>
 
-      {/* ── Add Task FAB ── */}
-      <View style={[styles.fab, { paddingBottom: insets.bottom + 72, ...(Platform.OS === "web" ? { paddingBottom: 96 } : {}) }]}>
-        <TouchableOpacity
-          onPress={() => { setEditingTask(undefined); setShowTaskSheet(true); }}
-          style={[styles.addFab, { backgroundColor: colors.primary }]}
-        >
-          <Ionicons name="add" size={24} color="#FFF" />
-          <Text style={styles.addFabText}>Add Task</Text>
-        </TouchableOpacity>
-      </View>
-
       {/* ── Focus Task Picker Modal ── */}
       <Modal
         visible={showFocusPicker}
@@ -414,10 +403,6 @@ const styles = StyleSheet.create({
 
   scheduleAllBtn: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 10, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 7 },
   scheduleAllText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
-
-  fab: { position: "absolute", bottom: 0, left: 0, right: 0, paddingHorizontal: 20 },
-  addFab: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 16, paddingVertical: 14 },
-  addFabText: { fontSize: 15, fontFamily: "Inter_700Bold", color: "#FFF" },
 
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" },
   modalSheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 20, paddingTop: 12, paddingBottom: 36, maxHeight: "75%" },
