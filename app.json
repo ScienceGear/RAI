@@ -1,0 +1,83 @@
+{
+  "expo": {
+    "name": "RAI",
+    "slug": "rai-accountability",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "rai",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/images/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#050510"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#050510"
+      },
+      "package": "com.teamgear.rai",
+      "versionCode": 1,
+      "compileSdkVersion": 34,
+      "targetSdkVersion": 34,
+      "minSdkVersion": 26,
+      "permissions": [
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.VIBRATE",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.USE_EXACT_ALARM",
+        "android.permission.SCHEDULE_EXACT_ALARM",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
+        "android.permission.PACKAGE_USAGE_STATS"
+      ],
+      "blockedPermissions": [
+        "android.permission.READ_CALL_LOG",
+        "android.permission.READ_SMS",
+        "android.permission.BIND_ACCESSIBILITY_SERVICE",
+        "android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#58CC02",
+          "sounds": [
+            "./assets/sounds/complete.m4a",
+            "./assets/sounds/levelup.m4a",
+            "./assets/sounds/streak.m4a",
+            "./assets/sounds/timer_end.m4a",
+            "./assets/sounds/achievement.m4a",
+            "./assets/sounds/morning.m4a",
+            "./assets/sounds/warning.m4a"
+          ]
+        }
+      ],
+      ["expo-background-fetch"],
+      ["expo-task-manager"],
+      ["react-native-reanimated/plugin"],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 34,
+            "targetSdkVersion": 34,
+            "buildToolsVersion": "34.0.0",
+            "minSdkVersion": 26,
+            "enableProguardInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true
+          }
+        }
+      ]
+    ],
+    "extra": {
+      "eas": { "projectId": "YOUR_EAS_PROJECT_ID" }
+    }
+  }
+}
