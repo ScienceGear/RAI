@@ -19,6 +19,7 @@ interface Props {
   onClose: () => void;
   onSave?: (task: Task) => void;
   prefillTime?: string;
+  prefillDate?: string;
 }
 
 const PRIORITY_OPTIONS: { value: TaskPriority; label: string; color: string }[] = [
@@ -58,7 +59,7 @@ function formatDeadlineDisplay(iso: string): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-export function TaskSheet({ visible, task, onClose, onSave, prefillTime }: Props) {
+export function TaskSheet({ visible, task, onClose, onSave, prefillTime, prefillDate }: Props) {
   const colors = useColors();
   const { addTask, updateTask, scheduleTask } = useApp();
 
@@ -136,6 +137,7 @@ export function TaskSheet({ visible, task, onClose, onSave, prefillTime }: Props
           moodSensitive,
           notes,
           isRecurring: false,
+          scheduledDate: prefillDate,
           scheduledTime: prefillTime,
         });
         if (andSchedule) await scheduleTask(newTask.id);

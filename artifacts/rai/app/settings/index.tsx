@@ -12,7 +12,7 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/contexts/AppContext";
 import { Theme } from "@/types";
-import { isFirebaseConfigured } from "@/lib/firebase";
+import { isCloudConfigured } from "@/lib/cloud";
 import {
   getNotificationPermissionStatus, requestNotificationPermission,
   scheduleDailyBriefing, scheduleDangerZoneAlert, cancelAllNotificationsOfType,
@@ -29,7 +29,7 @@ const FOCUS_PRESETS = [15, 20, 25, 30, 45, 60, 90];
 
 // ── Debounce hook ────────────────────────────────────────────────────────────
 function useDebounced<T extends (...args: any[]) => any>(fn: T, delay = 400) {
-  const timer = useRef<ReturnType<typeof setTimeout>>();
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fnRef = useRef(fn);
   fnRef.current = fn;
   return (...args: Parameters<T>) => {
@@ -281,7 +281,7 @@ export default function SettingsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const {
-    profile, updateProfile, resetOnboarding, dangerZone, firebaseUserId,
+    profile, updateProfile, resetOnboarding, dangerZone, authUserId,
     tasks,
   } = useApp();
 
@@ -526,11 +526,11 @@ export default function SettingsScreen() {
           <View style={[styles.group, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <SettingRow
               icon="cloud" iconColor="#6366F1"
-              label="Firebase Sync"
-              subtitle={isFirebaseConfigured
-                ? firebaseUserId ? `Connected · UID ${firebaseUserId.slice(0, 8)}…` : "Connecting…"
-                : "Add Firebase credentials in Replit Secrets"}
-              right={<StatusBadge status={isFirebaseConfigured && !!firebaseUserId ? "on" : isFirebaseConfigured ? "partial" : "off"} />}
+              label="Supabase Sync"
+              subtitle={isCloudConfigured
+                ? authUserId ? `Connected · UID ${authUserId.slice(0, 8)}…` : "Connecting…"
+                : "Add Supabase credentials in EAS env vars"}
+              right={<StatusBadge status={isCloudConfigured && !!authUserId ? "on" : isCloudConfigured ? "partial" : "off"} />}
             />
             <SettingRow
               icon="person" iconColor="#10B981"

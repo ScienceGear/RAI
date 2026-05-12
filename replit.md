@@ -74,8 +74,8 @@ Expo SDK 54 (React Native) Android-only AI productivity coach app.
 
 **Key Libraries:**
 - `contexts/AppContext.tsx` — Global state (profile, tasks, goals, diary, focus sessions, achievements, squad)
-- `lib/firebase.ts` — Firestore CRUD, auth, squad ops, base64 photo encoding
-- `lib/auth.ts` — Firebase Auth (signIn, signUp, signOut, listenToAuthState)
+- `lib/cloud.ts` — Supabase-backed CRUD, realtime squad ops, base64 photo encoding
+- `lib/auth.ts` — Supabase auth adapter (signIn, signUp, signOut, listenToAuthState)
 - `lib/notifications.ts` — expo-notifications: daily briefing, danger zone alerts, task reminders
 - `lib/ai.ts` — AI call helpers (chat, insight, scheduling, affirmations)
 - `lib/scheduler.ts` — Smart task scheduling based on energy profile
@@ -94,10 +94,6 @@ Express 5 server. Proxies Anthropic Claude AI requests from the mobile app.
 - `AI_INTEGRATIONS_ANTHROPIC_BASE_URL`
 - `AI_INTEGRATIONS_ANTHROPIC_API_KEY`
 
-**Firebase env vars (for `artifacts/rai`):**
-- `EXPO_PUBLIC_FIREBASE_API_KEY`
-- `EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN`
-- `EXPO_PUBLIC_FIREBASE_PROJECT_ID`
-- `EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET`
-- `EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`
-- `EXPO_PUBLIC_FIREBASE_APP_ID`
+**Supabase env vars (for `artifacts/rai`):**
+- `EXPO_PUBLIC_SUPABASE_URL`
+- `EXPO_PUBLIC_SUPABASE_ANON_KEY`

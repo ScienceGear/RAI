@@ -40,7 +40,7 @@ export default function BlockerScreen() {
         setCountdown((prev) => {
           if (prev <= 1) {
             clearInterval(intervalRef.current!);
-            AppBlocker.addGracePeriod(packageName ?? "", GRACE_MINUTES);
+            void AppBlocker.addGracePeriod(packageName ?? "", GRACE_MINUTES);
             router.back();
             return 0;
           }
@@ -62,7 +62,7 @@ export default function BlockerScreen() {
   };
 
   const handleGiveMeFive = () => {
-    AppBlocker.addGracePeriod(packageName ?? "", GRACE_MINUTES);
+    void AppBlocker.addGracePeriod(packageName ?? "", GRACE_MINUTES);
     setScreen("countdown");
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
   };
@@ -70,7 +70,7 @@ export default function BlockerScreen() {
   const handleCommit = () => {
     if (commitment.trim().length < 10) { shake(); return; }
     Keyboard.dismiss();
-    AppBlocker.addGracePeriod(packageName ?? "", GRACE_MINUTES);
+    void AppBlocker.addGracePeriod(packageName ?? "", GRACE_MINUTES);
     setScreen("countdown");
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };

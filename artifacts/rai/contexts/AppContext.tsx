@@ -1,20 +1,23 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { User } from "firebase/auth";
 
 import { Task, UserProfile, Goal, DiaryEntry, MoodLog, FocusSession, Achievement, Squad, ActivityFeedItem, DangerZoneProfile } from "@/types";
 import { getItem, setItem, KEYS } from "@/lib/storage";
 import { getDefaultEnergyProfile, autoScheduleTask } from "@/lib/scheduler";
 import { categorizeTaskLocal } from "@/lib/categorizer";
 import { calculateTaskXP, levelFromXP, calculateRaiScore, DEFAULT_ACHIEVEMENTS } from "@/lib/xp";
-import { computeBrainState, computeDangerZoneHours, computeDistractionPatterns, BrainState } from "@/lib/brainstate";
+import { computeBrainState, BrainState } from "@/lib/brainstate";
 import {
   firestoreSet, firestoreGet, firestoreGetAll, firestoreSetAll, firestoreSubscribe,
   createSquad as fsCreateSquad, joinSquad as fsJoinSquad,
   listenToSquad, updateSquadMember, SquadDoc, uidToColor,
-} from "@/lib/firebase";
-import { listenToAuthState, signOut as authSignOut } from "@/lib/auth";
+} from "@/lib/cloud";
+import { AuthUser, listenToAuthState, signOut as authSignOut } from "@/lib/auth";
 import { scheduleTaskReminder, sendInstantNotification, scheduleSmartAlerts } from "@/lib/notifications";
+import { calculateDangerZonesFromScreenTime } from "@/src/services/DangerZoneEngine";
+import { registerBackgroundTasks } from "@/src/services/BackgroundTaskManager";
+import { calculateRiskScore } from "@/src/services/RiskEngine";
+import { syncScreenTime } from "@/src/services/ScreenTimeService";
 
 const FIRESTORE_KEYS = ["profile", "tasks", "goals", "diary", "moodLogs", "focusSessions", "achievements", "activityFeed"];
 
@@ -36,8 +39,8 @@ interface AppContextType {
   todayFocusScore: number;
   isLoaded: boolean;
   isAuthReady: boolean;
-  firebaseUser: User | null;
-  firebaseUserId: string | null;
+  authUser: AuthUser | null;
+  authUserId: string | null;
 
   updateProfile: (updates: Partial<UserProfile>) => Promise<void>;
   addTask: (task: Omit<Task, "id" | "createdAt" | "updatedAt" | "sessions" | "skippedCount" | "categoryOverridden" | "isQuickTask" | "completed" | "dependencies">) => Promise<Task>;
@@ -112,6 +115,9 @@ const defaultProfile: UserProfile = {
   usageStatsGranted: false,
   accessibilityGranted: false,
   microphoneGranted: false,
+  permissionsComplete: false,
+  usageAccessGranted: false,
+  batteryExempt: false,
 };
 
 export const AppContext = createContext<AppContextType | null>(null);
@@ -129,7 +135,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [dangerZone, setDangerZone] = useState<DangerZoneProfile>(defaultDangerZone);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isAuthReady, setIsAuthReady] = useState(false);
-  const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
 
   // Track active Firestore subscriptions
   const unsubsRef = useRef<(() => void)[]>([]);
@@ -261,7 +267,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const unsubAuth = listenToAuthState(async (user) => {
       clearSubscriptions();
-      setFirebaseUser(user);
+      setAuthUser(user);
       setIsAuthReady(true);
       if (user) {
         await loadUserData(user.uid, user.email ?? "");
@@ -276,7 +282,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const uid = firebaseUser?.uid ?? null;
+  const uid = authUser?.uid ?? null;
 
   const syncProfile = useCallback((p: UserProfile) => {
     setItem(KEYS.USER_PROFILE, p);
@@ -486,7 +492,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => {
     clearSubscriptions();
     await authSignOut();
-    setFirebaseUser(null);
+    setAuthUser(null);
     setProfile(defaultProfile);
     setTasks([]); setGoals([]); setDiary([]);
     setSquad(null);
@@ -563,31 +569,78 @@ export function AppProvider({ children }: { children: ReactNode }) {
     Math.min(40, todayFocusMinutes / 2)
   ));
 
-  // Recompute danger zone from actual usage data + schedule smart notifications
+  // Recompute danger zones from real screen-time logs and register background sync
   useEffect(() => {
-    const dangerHours = computeDangerZoneHours(focusSessions, moodLogs);
-    const distractions = computeDistractionPatterns(tasks, focusSessions);
-    const isBootstrap = focusSessions.length < 5;
-    setDangerZone({
-      dangerHours: dangerHours.length > 0 ? dangerHours : [14, 15, 22, 23],
-      topDistractionApps: distractions,
-      weakestDayOfWeek: 6,
-      doomLoopSequences: [],
-      dataPointsCount: Math.max(0, focusSessions.length - 5),
-      isBootstrapEstimate: isBootstrap,
-      lastComputedAt: new Date().toISOString(),
-    });
-    // Schedule smart danger-zone notifications when we have enough data
-    if (focusSessions.length >= 3 && profile.notificationsGranted) {
-      const bs = computeBrainState({ focusSessions, moodLogs, tasks, todayFocusScore, streak: profile.streak });
-      scheduleSmartAlerts({
-        dangerHours: dangerHours.length > 0 ? dangerHours : [14, 15, 22, 23],
-        brainStateName: bs.name,
-        totalScreenMinutes: 0,
-        socialMinutes: 0,
-      }).catch(() => {});
-    }
-  }, [focusSessions.length, moodLogs.length, tasks.length, profile.notificationsGranted]);
+    let cancelled = false;
+
+    const run = async () => {
+      if (!uid || !profile.permissionsComplete || !profile.usageAccessGranted || !profile.batteryExempt) return;
+      try {
+        const totals = await syncScreenTime(uid);
+        const dangerHours = await calculateDangerZonesFromScreenTime(uid);
+        if (cancelled) return;
+
+        setDangerZone({
+          dangerHours,
+          topDistractionApps: totals.topDistractionApps,
+          weakestDayOfWeek: 6,
+          doomLoopSequences: [],
+          dataPointsCount: dangerHours.length,
+          isBootstrapEstimate: false,
+          lastComputedAt: new Date().toISOString(),
+        });
+
+        await registerBackgroundTasks(uid, dangerHours);
+
+        if (profile.notificationsGranted) {
+          const bs = computeBrainState({ focusSessions, moodLogs, tasks, todayFocusScore, streak: profile.streak });
+          await scheduleSmartAlerts({
+            dangerHours,
+            brainStateName: bs.name,
+            totalScreenMinutes: totals.totalMinutes,
+            socialMinutes: totals.distractionMinutes,
+          });
+        }
+      } catch {
+        if (cancelled) return;
+      }
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [uid, focusSessions.length, moodLogs.length, tasks.length, profile.notificationsGranted, profile.permissionsComplete, profile.usageAccessGranted, profile.batteryExempt]);
+
+  // Risk scoring with high-distraction signal
+  useEffect(() => {
+    let cancelled = false;
+
+    const evaluateRisk = async () => {
+      if (!uid || !profile.permissionsComplete || !profile.usageAccessGranted) return;
+      const today = todayStr();
+      const pendingTasks = tasks.filter((task) => task.scheduledDate === today && !task.completed).length;
+      const latestMood = moodLogs[0]?.mood ?? null;
+      try {
+        const result = await calculateRiskScore({
+          userId: uid,
+          pendingTasks,
+          idleMinutes: 0,
+          mood: latestMood,
+          currentHour: new Date().getHours(),
+          dangerHours: dangerZone.dangerHours,
+        });
+        if (!cancelled && result.level === "critical" && profile.notificationsGranted) {
+          await sendInstantNotification("Critical risk", "You're entering a high-distraction window. Open Focus now.");
+        }
+      } catch {}
+    };
+
+    void evaluateRisk();
+    return () => {
+      cancelled = true;
+    };
+  }, [uid, tasks, moodLogs, dangerZone.dangerHours, profile.notificationsGranted, profile.permissionsComplete, profile.usageAccessGranted]);
 
   // Brain state — recomputed whenever dependencies change
   const brainState: BrainState = computeBrainState({
@@ -601,7 +654,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   return (
     <AppContext.Provider value={{
       profile, tasks, goals, diary, moodLogs, focusSessions, achievements, squad, activityFeed,
-      dangerZone, brainState, todayFocusScore, isLoaded, isAuthReady, firebaseUser, firebaseUserId: uid,
+      dangerZone, brainState, todayFocusScore, isLoaded, isAuthReady, authUser, authUserId: uid,
       updateProfile, addTask, updateTask, deleteTask, completeTask, scheduleTask,
       addGoal, updateGoal, addDiaryEntry, updateDiaryEntry, logMood, addFocusSession,
       unlockAchievement, addXP, resetOnboarding, signOut,

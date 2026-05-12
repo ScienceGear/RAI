@@ -131,6 +131,9 @@ export interface UserProfile {
   accessibilityGranted: boolean;
   microphoneGranted: boolean;
   permissionsRequested?: boolean;
+  permissionsComplete?: boolean;
+  usageAccessGranted?: boolean;
+  batteryExempt?: boolean;
 }
 
 export interface DangerZoneProfile {

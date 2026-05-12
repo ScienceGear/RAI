@@ -1,11 +1,14 @@
 import { Tabs } from "expo-router";
 import { BlurView } from "expo-blur";
-import { Feather, Ionicons } from "@expo/vector-icons";
-import React from "react";
+import { Feather } from "@expo/vector-icons";
+import React, { useEffect } from "react";
 import { Platform, StyleSheet, View, useColorScheme } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useColors } from "@/hooks/useColors";
+import { useApp } from "@/contexts/AppContext";
+import { calculateRiskScore } from "@/src/services/RiskEngine";
+import { router } from "expo-router";
 
 export default function TabLayout() {
   const colors = useColors();
@@ -14,8 +17,38 @@ export default function TabLayout() {
   const isIOS = Platform.OS === "ios";
   const isWeb = Platform.OS === "web";
   const insets = useSafeAreaInsets();
+  const { authUserId, dangerZone, tasks, moodLogs, profile } = useApp();
 
   const tabBarHeight = isWeb ? 84 : 60 + insets.bottom;
+
+  useEffect(() => {
+    if (!authUserId || !profile.permissionsComplete || !profile.usageAccessGranted) return;
+
+    const checkRisk = async () => {
+      try {
+        const today = new Date().toISOString().split("T")[0];
+        const pendingTasks = tasks.filter((task) => task.scheduledDate === today && !task.completed).length;
+        const mood = moodLogs[0]?.mood ?? null;
+        const result = await calculateRiskScore({
+          userId: authUserId,
+          pendingTasks,
+          idleMinutes: 0,
+          mood,
+          currentHour: new Date().getHours(),
+          dangerHours: dangerZone.dangerHours,
+        });
+        if (result.level === "critical") {
+          router.replace("/lockscreen");
+        }
+      } catch {}
+    };
+
+    void checkRisk();
+    const interval = setInterval(() => {
+      void checkRisk();
+    }, 60_000);
+    return () => clearInterval(interval);
+  }, [authUserId, dangerZone.dangerHours, tasks, moodLogs, profile.permissionsComplete, profile.usageAccessGranted]);
 
   return (
     <Tabs

@@ -13,6 +13,9 @@ import { signIn, signUp, listenToAuthState } from "@/lib/auth";
 
 type Mode = "login" | "register";
 
+const DEMO_EMAIL = "demo2@rai.app";
+const DEMO_PASSWORD = "demo123456";
+
 export default function AuthScreen() {
   const insets = useSafeAreaInsets();
   const [mode, setMode] = useState<Mode>("login");
@@ -62,19 +65,41 @@ export default function AuthScreen() {
       }
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace(mode === "register" ? "/onboarding" : "/(tabs)/home");
-    } catch (e: any) {
-      const msg = e.code ?? e.message ?? "Something went wrong.";
-      if (msg.includes("user-not-found") || msg.includes("wrong-password") || msg.includes("invalid-credential")) {
+    } catch (e: unknown) {
+      const code = typeof e === "object" && e !== null && "code" in e && typeof (e as { code?: unknown }).code === "string"
+        ? (e as { code: string }).code
+        : "";
+      const message = typeof e === "object" && e !== null && "message" in e && typeof (e as { message?: unknown }).message === "string"
+        ? (e as { message: string }).message
+        : "";
+      const normalized = `${code} ${message}`.toLowerCase();
+
+      if (
+        normalized.includes("user-not-found") ||
+        normalized.includes("wrong-password") ||
+        normalized.includes("invalid-credential") ||
+        normalized.includes("invalid_credentials") ||
+        normalized.includes("invalid login credentials")
+      ) {
         setError("Incorrect email or password.");
-      } else if (msg.includes("email-already-in-use")) {
+      } else if (normalized.includes("email-already-in-use") || normalized.includes("user already registered")) {
         setError("An account with this email already exists. Sign in instead.");
-      } else if (msg.includes("weak-password")) {
+      } else if (normalized.includes("weak-password")) {
         setError("Password is too weak. Use at least 6 characters.");
-      } else if (msg.includes("invalid-email")) {
+      } else if (normalized.includes("invalid-email")) {
         setError("Invalid email address.");
+      } else if (normalized.includes("email not confirmed")) {
+        setError("Check your inbox and confirm your email, then try again.");
+      } else if (
+        normalized.includes("network request failed") ||
+        normalized.includes("failed to fetch") ||
+        normalized.includes("networkerror")
+      ) {
+        setError("Can't reach Supabase right now. Check internet and Supabase URL/key config.");
       } else {
         setError("Failed to sign in. Check your connection and try again.");
       }
+      console.warn("auth submit error:", e);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setLoading(false);
@@ -85,6 +110,13 @@ export default function AuthScreen() {
     setMode((m) => (m === "login" ? "register" : "login"));
     setError("");
     setPassword("");
+  };
+
+  const useDemoAccount = () => {
+    setMode("login");
+    setEmail(DEMO_EMAIL);
+    setPassword(DEMO_PASSWORD);
+    setError("");
   };
 
   return (
@@ -201,6 +233,11 @@ export default function AuthScreen() {
               </LinearGradient>
             </TouchableOpacity>
 
+            <TouchableOpacity onPress={useDemoAccount} disabled={loading} style={styles.demoBtn}>
+              <Text style={styles.demoBtnText}>Use Demo Account</Text>
+            </TouchableOpacity>
+            <Text style={styles.demoHint}>Email: {DEMO_EMAIL}   Password: {DEMO_PASSWORD}</Text>
+
             {/* Toggle mode */}
             <View style={styles.toggleRow}>
               <Text style={styles.toggleLabel}>
@@ -313,6 +350,27 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     overflow: "hidden",
     marginTop: 4,
+  },
+  demoBtn: {
+    borderWidth: 1,
+    borderColor: "#2D2D3F",
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#0A0A0F",
+  },
+  demoBtnText: {
+    fontSize: 14,
+    fontFamily: "Inter_600SemiBold",
+    color: "#A5B4FC",
+  },
+  demoHint: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    color: "#6B7280",
+    textAlign: "center",
+    marginTop: -4,
   },
   submitGradient: {
     flexDirection: "row",

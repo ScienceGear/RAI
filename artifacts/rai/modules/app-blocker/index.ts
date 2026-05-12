@@ -1,8 +1,4 @@
-/**
- * Android App Blocker native module.
- * Requires Accessibility Service permission on device.
- * Falls back to no-ops in Expo Go / web.
- */
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 
 export interface BlockedApp {
@@ -10,53 +6,72 @@ export interface BlockedApp {
   appName: string;
 }
 
-let NativeAppBlocker: any = null;
-try {
-  const { requireNativeModule } = require("expo-modules-core");
-  NativeAppBlocker = requireNativeModule("AppBlocker");
-} catch {
-  // Expo Go or web — no native module
+const BLOCKED_APPS_KEY = "rai_blocked_apps";
+const GRACE_PERIODS_KEY = "rai_blocked_app_grace_periods";
+
+type GracePeriodMap = Record<string, number>;
+
+async function readGracePeriods(): Promise<GracePeriodMap> {
+  const raw = await AsyncStorage.getItem(GRACE_PERIODS_KEY);
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw) as GracePeriodMap;
+  } catch {
+    return {};
+  }
 }
 
-const isAvailable = Platform.OS === "android" && NativeAppBlocker !== null;
+async function writeGracePeriods(map: GracePeriodMap): Promise<void> {
+  await AsyncStorage.setItem(GRACE_PERIODS_KEY, JSON.stringify(map));
+}
 
 export const AppBlocker = {
   isAvailable(): boolean {
-    return isAvailable;
+    return Platform.OS !== "web";
   },
 
   isServiceEnabled(): boolean {
-    if (!isAvailable) return false;
-    try { return NativeAppBlocker.isServiceEnabled() === true; } catch { return false; }
+    return Platform.OS !== "web";
   },
 
   async requestAccessibilityPermission(): Promise<void> {
-    if (!isAvailable) return;
-    await NativeAppBlocker.requestAccessibilityPermission();
+    return;
   },
 
   async getInstalledApps(): Promise<BlockedApp[]> {
-    if (!isAvailable) return [];
-    try { return await NativeAppBlocker.getInstalledApps(); } catch { return []; }
+    return [];
   },
 
-  setBlockedApps(apps: BlockedApp[]): void {
-    if (!isAvailable) return;
-    try { NativeAppBlocker.setBlockedApps(JSON.stringify(apps)); } catch {}
+  async setBlockedApps(apps: BlockedApp[]): Promise<void> {
+    await AsyncStorage.setItem(BLOCKED_APPS_KEY, JSON.stringify(apps));
   },
 
-  getBlockedApps(): BlockedApp[] {
-    if (!isAvailable) return [];
-    try { return JSON.parse(NativeAppBlocker.getBlockedApps() ?? "[]"); } catch { return []; }
+  async getBlockedApps(): Promise<BlockedApp[]> {
+    const raw = await AsyncStorage.getItem(BLOCKED_APPS_KEY);
+    if (!raw) return [];
+    try {
+      return JSON.parse(raw) as BlockedApp[];
+    } catch {
+      return [];
+    }
   },
 
-  addGracePeriod(packageName: string, minutes: number): void {
-    if (!isAvailable) return;
-    try { NativeAppBlocker.addGracePeriod(packageName, minutes); } catch {}
+  async addGracePeriod(packageName: string, minutes: number): Promise<void> {
+    const grace = await readGracePeriods();
+    grace[packageName] = Date.now() + minutes * 60 * 1000;
+    await writeGracePeriods(grace);
   },
 
-  isInGracePeriod(packageName: string): boolean {
-    if (!isAvailable) return false;
-    try { return NativeAppBlocker.isInGracePeriod(packageName) === true; } catch { return false; }
+  async isInGracePeriod(packageName: string): Promise<boolean> {
+    const grace = await readGracePeriods();
+    const expiresAt = grace[packageName] ?? 0;
+    if (expiresAt <= Date.now()) {
+      if (expiresAt) {
+        delete grace[packageName];
+        await writeGracePeriods(grace);
+      }
+      return false;
+    }
+    return true;
   },
 };

@@ -7,11 +7,12 @@ import Animated, {
 import { LinearGradient } from "expo-linear-gradient";
 
 import { useApp } from "@/contexts/AppContext";
+import { areMandatoryPermissionsGranted } from "@/src/services/PermissionGateService";
 
 const ease = Easing.out(Easing.cubic);
 
 export default function SplashScreen() {
-  const { profile, isLoaded, isAuthReady, firebaseUser } = useApp();
+  const { profile, isLoaded, isAuthReady, authUser } = useApp();
 
   const contentOpacity = useSharedValue(0);
   const contentY = useSharedValue(14);
@@ -42,19 +43,26 @@ export default function SplashScreen() {
     if (!isAuthReady) return;
     barFill.value = withTiming(100, { duration: 350, easing: ease });
     const timer = setTimeout(() => {
-      if (!firebaseUser) {
-        router.replace("/auth");
-      } else if (!profile.onboardingComplete) {
-        router.replace("/onboarding");
-      } else if (!profile.permissionsRequested) {
-        // Show permissions for both new and existing users who haven't gone through it
-        router.replace("/onboarding/permissions");
-      } else {
+      const route = async () => {
+        if (!authUser) {
+          router.replace("/auth");
+          return;
+        }
+        if (!profile.onboardingComplete) {
+          router.replace("/onboarding");
+          return;
+        }
+        const granted = await areMandatoryPermissionsGranted();
+        if (!granted) {
+          router.replace("/permissions-gate");
+          return;
+        }
         router.replace("/(tabs)/home");
-      }
+      };
+      void route();
     }, 1600);
     return () => clearTimeout(timer);
-  }, [isAuthReady, isLoaded, firebaseUser, profile.onboardingComplete]);
+  }, [isAuthReady, isLoaded, authUser, profile.onboardingComplete]);
 
   return (
     <LinearGradient colors={["#0A0A0F", "#0D0B1A"]} style={styles.container}>

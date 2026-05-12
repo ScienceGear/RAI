@@ -10,7 +10,7 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/contexts/AppContext";
 import { ProgressRing } from "@/components/ProgressRing";
-import { uidToColor } from "@/lib/firebase";
+import { uidToColor } from "@/lib/cloud";
 
 type Tab = "leaderboard" | "activity" | "squad";
 
@@ -27,7 +27,7 @@ function timeAgo(iso: string): string {
 export default function SquadScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { profile, squad, activityFeed, createSquad, joinSquadByCode, leaveSquad, firebaseUserId } = useApp();
+  const { profile, squad, activityFeed, createSquad, joinSquadByCode, leaveSquad, authUserId } = useApp();
 
   const [activeTab, setActiveTab] = useState<Tab>("leaderboard");
   const [showCreate, setShowCreate] = useState(false);
@@ -40,7 +40,7 @@ export default function SquadScreen() {
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
 
   // Login guard
-  if (!firebaseUserId) {
+  if (!authUserId) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={[styles.header, { paddingTop: topPadding + 8, backgroundColor: colors.background, borderBottomColor: colors.border }]}>
@@ -95,7 +95,7 @@ export default function SquadScreen() {
       )}
 
       {allMembers.map((member, i) => {
-        const isMe = member.id === profile.id || member.id === firebaseUserId;
+        const isMe = member.id === profile.id || member.id === authUserId;
         const isTop3 = i < 3 && squad;
         const color = member.avatarColor ?? uidToColor(member.id);
         return (
@@ -188,8 +188,9 @@ export default function SquadScreen() {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setShowCreate(false); setSquadName("");
       setActiveTab("leaderboard");
-    } catch {
-      setError("Failed to create squad. Try again.");
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Failed to create squad. Try again.";
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -198,14 +199,20 @@ export default function SquadScreen() {
   const handleJoin = async () => {
     if (inviteCode.trim().length !== 6) { setError("Enter a 6-character invite code."); return; }
     setLoading(true); setError("");
-    const ok = await joinSquadByCode(inviteCode.trim());
-    setLoading(false);
-    if (ok) {
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setShowJoin(false); setInviteCode("");
-      setActiveTab("leaderboard");
-    } else {
-      setError("Invalid code. Check with your squad leader.");
+    try {
+      const ok = await joinSquadByCode(inviteCode.trim());
+      if (ok) {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        setShowJoin(false); setInviteCode("");
+        setActiveTab("leaderboard");
+      } else {
+        setError("Invalid code. Check with your squad leader.");
+      }
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Failed to join squad. Try again.";
+      setError(message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -250,7 +257,7 @@ export default function SquadScreen() {
               <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Members ({squad.members.length})</Text>
             </View>
             {squad.members.map((m) => {
-              const isMe = m.id === profile.id || m.id === firebaseUserId;
+              const isMe = m.id === profile.id || m.id === authUserId;
               const color = m.avatarColor ?? uidToColor(m.id);
               return (
                 <View key={m.id} style={[styles.memberRow, { borderBottomColor: colors.border }]}>

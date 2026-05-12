@@ -10,10 +10,10 @@ import * as Haptics from "expo-haptics";
 
 import { useApp } from "@/contexts/AppContext";
 import { requestNotificationPermission, scheduleDailyBriefing, scheduleDangerZoneAlert } from "@/lib/notifications";
-import { UsageStats } from "@/modules/usage-stats";
-import { AppBlocker } from "@/modules/app-blocker";
+import { UsageStatsBridge } from "@/src/native/UsageStatsBridge";
+import { syncPermissionsToSupabase } from "@/src/services/PermissionGateService";
 
-type PermId = "notifications" | "usage" | "blocker";
+type PermId = "notifications" | "usage" | "battery";
 
 const PERMISSIONS: {
   id: PermId;
@@ -48,29 +48,37 @@ const PERMISSIONS: {
     skip: "Skip — use default danger zone",
   },
   {
-    id: "blocker",
-    icon: "shield-checkmark",
+    id: "battery",
+    icon: "battery-charging",
     iconColor: "#EF4444",
-    title: "Block distracting apps",
-    why: "When you open a blocked app, RAI intercepts it with a mindful commitment prompt — giving you a 5-second pause instead of an hour of doom-scrolling.",
+    title: "Run reliably in background",
+    why: "Battery optimization exemption lets RAI keep syncing screen-time and danger-zone alerts when the app is closed.",
     hint: Platform.OS === "android"
-      ? "After tapping below, find RAI in the Accessibility list and enable the service."
+      ? "After tapping below, allow RAI to ignore battery optimization."
       : null,
-    cta: Platform.OS === "android" ? "Open Accessibility Settings" : "Continue",
-    skip: "Skip — no app blocking",
+    cta: Platform.OS === "android" ? "Open Battery Optimization Settings" : "Continue",
+    skip: "Skip",
   },
 ];
 
 export default function Permissions() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
-  const { updateProfile, dangerZone } = useApp();
+  const { updateProfile, dangerZone, authUserId } = useApp();
   const insets = useSafeAreaInsets();
   const topPad = insets.top > 0 ? insets.top : (Platform.OS === "web" ? 20 : 44);
   const current = PERMISSIONS[currentIndex];
 
   const finish = async () => {
-    await updateProfile({ permissionsRequested: true });
+    await updateProfile({
+      permissionsRequested: true,
+      permissionsComplete: true,
+      usageAccessGranted: true,
+      batteryExempt: true,
+    });
+    if (authUserId) {
+      await syncPermissionsToSupabase(authUserId);
+    }
     router.replace("/(tabs)/home");
   };
 
@@ -82,13 +90,14 @@ export default function Permissions() {
     }
   };
 
-  const handleGrant = async () => {
+  const handleGrant = async (advanceIfGranted = true) => {
     setIsLoading(true);
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
+    let granted = false;
     try {
       if (current.id === "notifications") {
-        const granted = await requestNotificationPermission();
+        granted = await requestNotificationPermission();
         await updateProfile({ notificationsGranted: granted });
         if (granted) {
           await scheduleDailyBriefing(8, 0);
@@ -112,27 +121,33 @@ export default function Permissions() {
           // Opens Android Usage Access settings immediately.
           // Permission is granted by the user in system settings — we can't intercept it.
           // The AppState listener in analytics.tsx will detect the grant when they return.
-          await UsageStats.requestPermission();
-          await updateProfile({ usageStatsGranted: false }); // will be updated by AppState listener
+          await UsageStatsBridge.requestUsageAccess();
+          granted = UsageStatsBridge.hasUsageAccess();
+          await updateProfile({ usageStatsGranted: granted, usageAccessGranted: granted });
         } else {
-          await updateProfile({ usageStatsGranted: true });
+          granted = true;
+          await updateProfile({ usageStatsGranted: true, usageAccessGranted: true });
         }
 
-      } else if (current.id === "blocker") {
+      } else if (current.id === "battery") {
         if (Platform.OS === "android") {
-          await AppBlocker.requestAccessibilityPermission();
-          await updateProfile({ accessibilityGranted: false }); // updated by AppState
+          await UsageStatsBridge.requestIgnoreBatteryOptimizations();
+          granted = UsageStatsBridge.isBatteryOptimizationIgnored();
+          await updateProfile({ batteryExempt: granted });
+        } else {
+          granted = true;
+          await updateProfile({ batteryExempt: true });
         }
       }
     } catch {}
 
     setIsLoading(false);
-    await advance();
+    if (granted && advanceIfGranted) await advance();
   };
 
   const handleSkip = async () => {
     await Haptics.selectionAsync();
-    await advance();
+    await handleGrant(false);
   };
 
   return (
@@ -193,7 +208,7 @@ export default function Permissions() {
 
 const styles = StyleSheet.create({
   progressRow: { flexDirection: "row", gap: 8, justifyContent: "center", paddingTop: 16 },
-  dot: { height: 4, borderRadius: 2, transition: "width 0.3s" as any },
+  dot: { height: 4, borderRadius: 2 },
   container: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 32, gap: 36 },
   iconRing: { width: 128, height: 128, borderRadius: 64, alignItems: "center", justifyContent: "center", borderWidth: 1 },
   textBlock: { alignItems: "center", gap: 12 },

@@ -14,7 +14,7 @@ import { useApp } from "@/contexts/AppContext";
 import { ProgressRing } from "@/components/ProgressRing";
 import { xpToNextLevel, getLevelTitle } from "@/lib/xp";
 import { getRaiScoreTier, getCategoryColor } from "@/constants/categories";
-import { encodeProfilePhoto } from "@/lib/firebase";
+import { encodeProfilePhoto } from "@/lib/cloud";
 
 const AVATAR_COLORS = [
   "#6366F1", "#8B5CF6", "#EC4899", "#EF4444",
@@ -34,7 +34,7 @@ export default function ProfileScreen() {
   const [editPhotoUri, setEditPhotoUri] = useState<string | undefined>(profile.avatarUrl);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
 
-  const saveDebounce = useRef<ReturnType<typeof setTimeout>>();
+  const saveDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const xpInfo = xpToNextLevel(profile.xp);
   const levelTitle = getLevelTitle(profile.level);

@@ -16,9 +16,7 @@ export function useColors() {
     isDark = theme === "dark" || theme === "amoled";
   }
 
-  const palette = isDark && "dark" in colors
-    ? (colors as Record<string, typeof colors.light>).dark
-    : colors.light;
+  const palette = isDark ? colors.dark : colors.light;
 
   const base = { ...palette, radius: colors.radius };
 

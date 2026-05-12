@@ -14,7 +14,7 @@ import { useApp } from "@/contexts/AppContext";
 import { useColors } from "@/hooks/useColors";
 import { getDefaultEnergyProfile } from "@/lib/scheduler";
 import { generateOnboardingSummary } from "@/lib/ai";
-import { encodeProfilePhoto } from "@/lib/firebase";
+import { encodeProfilePhoto } from "@/lib/cloud";
 import { PrimaryFocus, Chronotype } from "@/types";
 
 type Step = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
