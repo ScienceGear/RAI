@@ -62,6 +62,23 @@ function aggregateToAppUsage(rows: UsageEntryMs[]): AppUsage[] {
     .sort((a, b) => b.totalMinutes - a.totalMinutes);
 }
 
+function aggregateHourly(rows: HourlyUsageEntryMs[]): HourlyScreenTime[] {
+  const byHour = new Map<number, { totalTimeMs: number; sessionCount: number }>();
+  for (const row of rows) {
+    const current = byHour.get(row.hour) ?? { totalTimeMs: 0, sessionCount: 0 };
+    current.totalTimeMs += row.totalTimeInForeground;
+    current.sessionCount += 1;
+    byHour.set(row.hour, current);
+  }
+  return [...byHour.entries()]
+    .map(([hour, value]) => ({
+      hour,
+      totalMinutes: Math.round(value.totalTimeMs / 60000),
+      sessionCount: value.sessionCount,
+    }))
+    .sort((a, b) => a.hour - b.hour);
+}
+
 export const UsageStats = {
   isAvailable(): boolean {
     return isAvailable;
@@ -139,14 +156,18 @@ export const UsageStats = {
     try {
       const start = new Date();
       start.setHours(0, 0, 0, 0);
-      return await nativeModule?.getUsageByHourForDate?.(start.getTime()) ?? [];
+      const rows = await nativeModule?.getUsageByHourForDate?.(start.getTime()) ?? [];
+      return aggregateHourly(rows);
     } catch { return []; }
   },
 
   /** Hourly breakdown for any day — pass start-of-day epoch ms */
   async getHourlyScreenTimeForDate(startOfDayMs: number): Promise<HourlyScreenTime[]> {
     if (!isAvailable) return [];
-    try { return await nativeModule?.getUsageByHourForDate?.(startOfDayMs) ?? []; } catch { return []; }
+    try {
+      const rows = await nativeModule?.getUsageByHourForDate?.(startOfDayMs) ?? [];
+      return aggregateHourly(rows);
+    } catch { return []; }
   },
 
   async getWeeklyTotals(): Promise<{ date: string; totalMinutes: number }[]> {

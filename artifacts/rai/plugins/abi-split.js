@@ -3,7 +3,7 @@
  * Modern Android devices (2017+) are all arm64.
  * Building only arm64 cuts APK size roughly in half vs building all 4 ABIs.
  */
-const { withDangerousMod } = require("@expo/config-plugins");
+const { withDangerousMod } = require("expo/config-plugins");
 const path = require("path");
 const fs = require("fs");
 

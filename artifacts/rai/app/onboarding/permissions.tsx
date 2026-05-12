@@ -187,7 +187,7 @@ export default function Permissions() {
           {/* Buttons */}
           <View style={styles.btns}>
             <TouchableOpacity
-              onPress={handleGrant}
+              onPress={() => void handleGrant()}
               disabled={isLoading}
               style={[styles.ctaBtn, { backgroundColor: current.iconColor, opacity: isLoading ? 0.7 : 1 }]}
             >
