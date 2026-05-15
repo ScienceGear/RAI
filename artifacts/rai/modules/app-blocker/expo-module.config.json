@@ -1,0 +1,13 @@
+{
+  "source": "expo-module",
+  "ios": {
+    "cocoapods": {
+      "specfile": "expo-module.podspec"
+    }
+  },
+  "android": {
+    "package": "expo.modules.appblocker",
+    "srcMain": "src/main/java/expo/modules/appblocker",
+    "buildGradle": true
+  }
+}
