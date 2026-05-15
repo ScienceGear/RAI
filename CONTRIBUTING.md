@@ -1,201 +1,258 @@
-# Contributing to RAI 🤖
+# Contributing to RAI
 
-First of all — **thank you** for your interest in contributing to **RAI (Reasoning Artificial Intelligence)**.
-
-RAI is not just a software project. It is an attempt to build a **personal life assistant** that is intelligent, caring, and genuinely helpful — inspired by **Jarvis** and **Baymax**.
-
-We welcome contributors of **all skill levels**. Whether you are a beginner or an experienced developer, your help matters.
-
----
-
-## 🌟 Ways You Can Contribute
-
-There are many ways to be part of RAI:
-
-* 🐛 **Bug Reports** – Find and report issues
-* 💡 **Feature Ideas** – Suggest improvements or new ideas
-* 🧠 **AI & Logic** – Improve reasoning, memory, or agent behavior
-* 📝 **Documentation** – Improve README, guides, and explanations
-* 🎨 **UI/UX Design** – Design clean, human-friendly interfaces
-* 🔧 **Code Contributions** – Fix bugs, add features, refactor code
-* 🧪 **Testing** – Write tests and improve reliability
-* 🌍 **Community Help** – Help others understand and use RAI
-
-If you’re unsure where to start, look for issues labeled **`good first issue`**.
+Thank you for your interest in contributing to RAI! This document provides comprehensive guidelines for contributing to the project.
 
 ---
 
 ## 🚀 Getting Started
 
 ### Prerequisites
+- **Node.js** 18+ with **pnpm** package manager
+- **Expo CLI** (`npm install -g @expo/cli`)
+- **Android Studio** (for Android development & emulator)
+- **Xcode** (for iOS development, macOS only)
+- **Git** with a GitHub account
+- **Supabase** account and project
 
-* Git
-* Python 3.10+
-* Node.js (for frontend work)
-* A code editor (VS Code recommended)
+### Fork & Clone
 
----
+1. **Fork the repository** on [GitHub](https://github.com/ScienceGear/RAI)
+2. **Clone your fork:**
+   ```bash
+   git clone https://github.com/<your-username>/RAI.git
+   cd RAI/Premium-Logic-Builder
+   ```
+3. **Install dependencies:**
+   ```bash
+   pnpm install
+   ```
 
-### Development Setup
+### Environment Setup
 
-```bash
-# 1. Fork the repository on GitHub
-# 2. Clone your fork
-git clone https://github.com/YOUR_USERNAME/RAI.git
-cd RAI
+4. **Configure environment variables:**
+   ```bash
+   cd artifacts/rai
+   cp .env.example .env
+   ```
+5. Edit `.env` with your Supabase credentials:
+   ```env
+   EXPO_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+   EXPO_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
+   ```
 
-# 3. Create virtual environment
-python -m venv venv
-source venv/bin/activate  # Linux / macOS
-venv\Scripts\activate     # Windows
-
-# 4. Install dependencies
-pip install -r requirements.txt
-
-# 5. Run the project (example)
-python main.py
-```
-
-> Setup steps may evolve as RAI grows — documentation will be updated accordingly.
-
----
-
-## 🧠 Project Philosophy (Important)
-
-Before contributing, please understand how RAI is built:
-
-* RAI is **human-first**, not feature-first
-* Simplicity is preferred over complexity
-* Privacy and user control are core values
-* RAI should **support and guide**, not manipulate
-* Automation must always be **explicitly permitted**
-
-If a feature violates these principles, it likely won’t be accepted.
+6. **Start the development server:**
+   ```bash
+   pnpm dev
+   ```
+   Open Expo Go on your device and scan the QR code.
 
 ---
 
-## 🔧 Development Guidelines
+## 📂 Project Structure
 
-### Code Style
+The main application lives in `artifacts/rai/`:
 
-* Write **clean, readable code**
-* Follow language-specific best practices
-* Use meaningful variable and function names
-* Add comments where logic is non-obvious
+| Directory | Purpose |
+|-----------|---------|
+| `app/` | Route files (Expo Router) — screens, layouts, not-found |
+| `components/` | Reusable UI components |
+| `constants/` | Theme colors, categories, static data |
+| `contexts/` | React Context providers (AppContext) |
+| `hooks/` | Custom React hooks |
+| `lib/` | Core business logic (AI, auth, cloud, scheduling, etc.) |
+| `modules/` | Native Expo modules (app-blocker, usage-stats) |
+| `plugins/` | Expo config plugins |
+| `src/services/` | Background services and engines |
+| `src/supabase/` | Supabase client & auth functions |
+| `supabase/` | SQL migration schemas |
+| `types/` | Shared TypeScript interfaces |
+
+---
+
+## 📝 Coding Standards
 
 ### General Rules
 
-* Keep functions small and focused
-* Avoid unnecessary abstractions
-* Prefer clarity over cleverness
-* Write code as if someone else will maintain it
+- **Use TypeScript** — All code must be strictly typed. Avoid `any` types.
+- **Use Expo Router** — File-based routing pattern. Route files start with `+` (e.g., `+not-found.tsx`).
+- **Use Zustand** for client-side state management.
+- **Use React Query** for server-side state management.
+- **Use Tailwind CSS** via NativeWind for styling — follow the existing color theme (`#0A0A0F` bg, `#6366F1` primary, `#8B5CF6` accent).
+- **Write JSDoc comments** for all exported functions, types, and interfaces.
+
+### File Organization
+
+- **Route files:** `app/[section]/[action].tsx` or `app/[section]/[action]/+page.tsx`
+- **Layout files:** `app/[section]/+layout.tsx` or `app/[section]/_layout.tsx`
+- **Components:** PascalCase filenames (e.g., `TaskCard.tsx`, `ProgressRing.tsx`)
+- **Hooks:** `use` prefix (e.g., `useColors.ts`, `useStorage.ts`)
+- **Libraries:** Lowercase descriptive names (e.g., `auth.ts`, `cloud.ts`, `scheduler.ts`)
+
+### Code Style
+
+```typescript
+// ✅ Good — Descriptive names, proper typing
+export async function createSquad(params: {
+  squadName: string;
+  creatorUid: string;
+  creatorName: string;
+}): Promise<SquadDoc> { ... }
+
+// ❌ Avoid — Vague names, any types
+export async function makeGroup(data: any) { ... }
+```
+
+- Use **async/await** for all asynchronous operations.
+- Use **optional chaining** (`?.`) and **nullish coalescing** (`??`) for safe access.
+- Use **const** by default, **let** only when reassignment is needed.
+- Prefer **arrow functions** over traditional function expressions.
+- Import types explicitly: `import type { Task } from "@/types"`.
 
 ---
 
-## 🧪 Testing
+## 🔧 Adding a New Feature
 
-* New features should include basic tests where possible
-* Bug fixes should include regression tests
-* Make sure existing tests pass before submitting a PR
+### Step-by-Step Guide
+
+1. **Create a feature branch:**
+   ```bash
+   git checkout -b feature/your-feature-name
+   ```
+
+2. **Design the feature** — Consider how it fits into the existing architecture (routes, components, lib, services).
+
+3. **Implement:**
+   - Add route files in `app/` if UI is involved
+   - Add components in `components/`
+   - Add business logic in `lib/`
+   - Add service workers in `src/services/` if needed
+   - Update types in `types/index.ts`
+   - Update context providers in `contexts/AppContext.tsx` if global state is needed
+
+4. **Test:**
+   ```bash
+   pnpm typecheck      # Run TypeScript type checking
+   pnpm android         # Test on Android
+   ```
+
+5. **Commit your changes:**
+   ```bash
+   git add -A
+   git commit -m "feat: add [description of feature]"
+   ```
 
 ---
 
-## 📝 Issues & Feature Requests
+## 🐛 Reporting Issues
 
-### Before Creating an Issue
+When reporting bugs, include:
 
-1. Search existing issues to avoid duplicates
-2. For big ideas, start with a **discussion**
-
-### Bug Reports Should Include:
-
-* What happened
-* What you expected
-* Steps to reproduce
-* Environment (OS, Python version, etc.)
-
-### Feature Requests Should Include:
-
-* The problem you want to solve
-* Why it matters
-* How it fits RAI’s vision
+- **Device model** and **OS version**
+- **Steps to reproduce** (detailed, reproducible steps)
+- **Expected behavior** vs. **actual behavior**
+- **Screenshots or screen recordings** if applicable
+- **Console logs** if available
+- **Crash logs** for native crashes (from `adb logcat` or Xcode Console)
 
 ---
 
-## 🔀 Pull Request Process
+## 📋 Pull Request Process
 
-1. Create a new branch
+1. **Branch naming:** Use `feature/`, `fix/`, or `refactor/` prefixes.
+2. **Commit messages:** Be descriptive and follow conventional commits:
+   - `feat:` — New feature
+   - `fix:` — Bug fix
+   - `refactor:` — Code restructuring without behavior change
+   - `chore:` — Maintenance tasks (deps, build, etc.)
+   - `docs:` — Documentation changes
+3. **PR description:** Include:
+   - Summary of changes and rationale
+   - Screenshots/GIFs for UI changes
+   - Related issue numbers (if applicable)
+   - Testing instructions
+4. **Before merging:**
+   - All checks must pass
+   - TypeScript type checking must pass
+   - No secrets or sensitive data in code
+   - No breaking changes (unless explicitly noted)
 
+---
+
+## ⚠️ Important Guidelines
+
+- **Never commit secrets** — API keys, tokens, certificates, or `.env` files are gitignored. Use `.env.example` for placeholder values.
+- **Keep the Supabase config** — The `.env` file must contain `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY`.
+- **Maintain workspace references** — The monorepo uses pnpm workspaces. Any new packages must be properly linked.
+- **Android-only focus** — The native modules (`app-blocker`, `usage-stats`) are Android-specific. Ensure corresponding iOS implementations exist before adding cross-platform features.
+
+---
+
+## 🚢 Building for Distribution
+
+### Preview Build (APK)
 ```bash
-git checkout -b feature/your-feature-name
-# or
-git checkout -b fix/bug-description
+eas build --platform android --profile preview --local
 ```
 
-2. Make your changes
-3. Test your changes
-4. Commit with a clear message
-
-```text
-feat(ui): add dynamic goal cards
-fix(memory): resolve context overflow issue
-docs(readme): improve setup instructions
+### Production Build (AAB for Play Store)
+```bash
+eas build --platform android --profile production
 ```
 
-5. Open a Pull Request
-
-   * Describe **what** you changed and **why**
-   * Link related issues if applicable
-   * Add screenshots for UI changes
-
----
-
-## 🏷️ Issue Labels
-
-* `good first issue` – Beginner-friendly
-* `bug` – Something isn’t working
-* `feature` – New functionality
-* `ui/ux` – Interface-related
-* `ai` – Reasoning, memory, agents
-* `discussion` – Open-ended ideas
+### EAS Configuration
+Review `eas.json` for build profiles:
+- `development` — Development client with internal distribution
+- `preview` — Internal distribution for testing
+- `production` — Auto-incremented version for production
 
 ---
 
-## 🔒 Security & Safety
+## 📊 Project Timeline
 
-* Do **NOT** open public issues for security vulnerabilities
-* Report sensitive issues privately to the maintainer
-
-RAI takes user safety and privacy seriously.
-
----
-
-## 📄 License
-
-By contributing to RAI, you agree that:
-
-* Your contributions are licensed under the **Apache License 2.0**
-* You have the right to submit the contributed code or content
+| Phase | Activity | Status |
+|-------|----------|--------|
+| Phase 1 | Empathise — User Research & Surveys | ✅ Complete |
+| Phase 2 | Define — Problem Framing (5 Whys) | ✅ Complete |
+| Phase 3 | Ideate — Brainstorming & Selection | ✅ Complete |
+| Phase 4 | Prototype — App Development | ✅ Complete |
+| Phase 5 | Test — User Testing & Feedback | ✅ Complete |
+| Future | Cross-platform expansion, advanced AI features | 📋 Planned |
 
 ---
 
-## 🤍 Community Values
+## 👥 Team & Roles
 
-* Be respectful and kind
-* Encourage learning and growth
-* No toxic behavior
-* Everyone was a beginner once
+| Name | Roll No | Role |
+|------|---------|------|
+| Pranay Popat Tanpure | 10466 | Lead Developer, AI/Backend |
+| Kartik Rajesh Rokade | 10455 | Frontend & UX |
+| Charu Ramakant Singla | 10463 | Research & Design |
+| Ruthika Sandeep Tatar | 10467 | Testing & Documentation |
+| Malhar Dnyaneshwar Taware | 10468 | Native Modules & Build |
+| Harsh Kishor Wagh | 10470 | Analytics & Data |
 
-RAI is meant to help people become better — that includes our community.
+**Project Guide:** Prof. Dr. Shivaji V. Mundhe — Basic Sciences and Engineering, F.Y. B. Tech., PICT
 
 ---
 
-## 🙌 Final Note
+## 🔗 Useful Links
 
-RAI is being built step by step, in public, with honesty.
+- [Expo Documentation](https://docs.expo.dev/)
+- [Expo Router Guide](https://expo.github.io/router/docs/)
+- [Supabase Documentation](https://supabase.com/docs)
+- [React Native Documentation](https://reactnative.dev/docs/getting-started)
+- [Design Thinking Process](https://www.interaction-design.org/literature/topics/design-thinking)
 
-If you believe AI should **help humans live better lives**, you’re in the right place.
+---
 
-Thank you for contributing to **RAI**.
+## Code of Conduct
 
-— *Maintained by Pranay Tanpure*
+Be respectful, constructive, and professional in all interactions. Follow the [Contributor Covenant](https://www.contributor-covenant.org/version/2/1/code_of_conduct/).
+
+---
+
+## Questions?
+
+Open a GitHub **Discussion** or reach out to the maintainers directly on GitHub.
+
+**Happy coding! 🚀**
