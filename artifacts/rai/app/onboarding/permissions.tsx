@@ -1,80 +1,80 @@
-import React, { useState } from "react";
-import {
-  View, Text, StyleSheet, TouchableOpacity, Platform, Linking, Alert,
-} from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import React, { useEffect, useRef, useState } from "react";
+import { AppState, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import * as Notifications from "expo-notifications";
 import { router } from "expo-router";
-import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
+import { LinearGradient } from "expo-linear-gradient";
 
 import { useApp } from "@/contexts/AppContext";
-import { requestNotificationPermission, scheduleDailyBriefing, scheduleDangerZoneAlert } from "@/lib/notifications";
 import { UsageStatsBridge } from "@/src/native/UsageStatsBridge";
-import { syncPermissionsToSupabase } from "@/src/services/PermissionGateService";
+import { AppBlocker } from "@/modules/app-blocker";
+import {
+  getPermissionGateStatus,
+  persistPermissionStatus,
+  syncPermissionsToSupabase,
+} from "@/src/services/PermissionGateService";
 
-type PermId = "notifications" | "usage" | "battery";
+type GateState = {
+  notificationsGranted: boolean;
+  usageAccessGranted: boolean;
+  batteryExempt: boolean;
+  accessibilityGranted: boolean;
+};
 
-const PERMISSIONS: {
-  id: PermId;
-  icon: React.ComponentProps<typeof Ionicons>["name"];
-  iconColor: string;
-  title: string;
-  why: string;
-  hint: string | null;
-  cta: string;
-  skip: string;
-}[] = [
-  {
-    id: "notifications",
-    icon: "notifications",
-    iconColor: "#6366F1",
-    title: "Stay on track",
-    why: "RAI sends you a morning briefing every day, reminds you 5 min before each task, and alerts you just before your danger zone starts.",
-    hint: null,
-    cta: "Enable Notifications",
-    skip: "Skip",
-  },
-  {
-    id: "usage",
-    icon: "bar-chart",
-    iconColor: "#F97316",
-    title: "See your real screen time",
-    why: "RAI reads your daily app usage from Android's Digital Wellbeing to show which apps eat your time, track your danger zone, and send smart alerts.",
-    hint: Platform.OS === "android"
-      ? "After tapping below, find RAI in the list that opens — then flip the toggle to allow."
-      : null,
-    cta: Platform.OS === "android" ? "Open Usage Access Settings" : "Continue",
-    skip: "Skip — use default danger zone",
-  },
-  {
-    id: "battery",
-    icon: "battery-charging",
-    iconColor: "#EF4444",
-    title: "Run reliably in background",
-    why: "Battery optimization exemption lets RAI keep syncing screen-time and danger-zone alerts when the app is closed.",
-    hint: Platform.OS === "android"
-      ? "After tapping below, allow RAI to ignore battery optimization."
-      : null,
-    cta: Platform.OS === "android" ? "Open Battery Optimization Settings" : "Continue",
-    skip: "Skip",
-  },
-];
+export default function OnboardingPermissions() {
+  const { updateProfile, authUserId } = useApp();
+  const hasRequestedNotifications = useRef(false);
+  const [state, setState] = useState<GateState>({
+    notificationsGranted: false,
+    usageAccessGranted: false,
+    batteryExempt: false,
+    accessibilityGranted: false,
+  });
 
-export default function Permissions() {
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [isLoading, setIsLoading] = useState(false);
-  const { updateProfile, dangerZone, authUserId } = useApp();
-  const insets = useSafeAreaInsets();
-  const topPad = insets.top > 0 ? insets.top : (Platform.OS === "web" ? 20 : 44);
-  const current = PERMISSIONS[currentIndex];
+  const isComplete =
+    state.notificationsGranted &&
+    state.usageAccessGranted &&
+    state.batteryExempt &&
+    state.accessibilityGranted;
 
-  const finish = async () => {
+  const refresh = async () => {
+    const status = await getPermissionGateStatus();
+    const complete =
+      status.notificationsGranted &&
+      status.usageAccessGranted &&
+      status.batteryExempt &&
+      status.accessibilityGranted;
+    setState({
+      notificationsGranted: status.notificationsGranted,
+      usageAccessGranted: status.usageAccessGranted,
+      batteryExempt: status.batteryExempt,
+      accessibilityGranted: status.accessibilityGranted,
+    });
+    await persistPermissionStatus({ ...status, done: complete });
+  };
+
+  useEffect(() => {
+    void refresh();
+    if (!hasRequestedNotifications.current) {
+      hasRequestedNotifications.current = true;
+      void Notifications.requestPermissionsAsync().then(() => refresh());
+    }
+    const sub = AppState.addEventListener("change", (next) => {
+      if (next === "active") void refresh();
+    });
+    return () => sub.remove();
+  }, []);
+
+  const continueToApp = async () => {
+    if (!isComplete) return;
     await updateProfile({
       permissionsRequested: true,
-      permissionsComplete: true,
+      notificationsGranted: true,
+      usageStatsGranted: true,
       usageAccessGranted: true,
       batteryExempt: true,
+      accessibilityGranted: true,
+      permissionsComplete: true,
     });
     if (authUserId) {
       await syncPermissionsToSupabase(authUserId);
@@ -82,144 +82,133 @@ export default function Permissions() {
     router.replace("/(tabs)/home");
   };
 
-  const advance = async () => {
-    if (currentIndex < PERMISSIONS.length - 1) {
-      setCurrentIndex((i) => i + 1);
-    } else {
-      await finish();
-    }
-  };
-
-  const handleGrant = async (advanceIfGranted = true) => {
-    setIsLoading(true);
-    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-    let granted = false;
-    try {
-      if (current.id === "notifications") {
-        granted = await requestNotificationPermission();
-        await updateProfile({ notificationsGranted: granted });
-        if (granted) {
-          await scheduleDailyBriefing(8, 0);
-          const firstDangerHour = dangerZone.dangerHours[0];
-          if (firstDangerHour != null && firstDangerHour > 0) {
-            await scheduleDangerZoneAlert(firstDangerHour);
-          }
-        } else {
-          Alert.alert(
-            "Notifications Blocked",
-            "Enable later: Settings → Apps → RAI → Notifications.",
-            [
-              { text: "Open Settings", onPress: () => Linking.openSettings() },
-              { text: "OK", style: "cancel" },
-            ]
-          );
-        }
-
-      } else if (current.id === "usage") {
-        if (Platform.OS === "android") {
-          // Opens Android Usage Access settings immediately.
-          // Permission is granted by the user in system settings — we can't intercept it.
-          // The AppState listener in analytics.tsx will detect the grant when they return.
-          await UsageStatsBridge.requestUsageAccess();
-          granted = UsageStatsBridge.hasUsageAccess();
-          await updateProfile({ usageStatsGranted: granted, usageAccessGranted: granted });
-        } else {
-          granted = true;
-          await updateProfile({ usageStatsGranted: true, usageAccessGranted: true });
-        }
-
-      } else if (current.id === "battery") {
-        if (Platform.OS === "android") {
-          await UsageStatsBridge.requestIgnoreBatteryOptimizations();
-          granted = UsageStatsBridge.isBatteryOptimizationIgnored();
-          await updateProfile({ batteryExempt: granted });
-        } else {
-          granted = true;
-          await updateProfile({ batteryExempt: true });
-        }
-      }
-    } catch {}
-
-    setIsLoading(false);
-    if (granted && advanceIfGranted) await advance();
-  };
-
-  const handleSkip = async () => {
-    await Haptics.selectionAsync();
-    await handleGrant(false);
-  };
-
   return (
-    <LinearGradient colors={["#0A0A0F", "#0D0B1A", "#130A28"]} style={{ flex: 1 }}>
-      <View style={{ flex: 1 }}>
-        {/* Progress dots */}
-        <View style={[styles.progressRow, { paddingTop: topPad + 8 }]}>
-          {PERMISSIONS.map((_, i) => (
-            <View
-              key={i}
-              style={[styles.dot, {
-                backgroundColor: i < currentIndex ? "#6366F1" : i === currentIndex ? "#8B5CF6" : "#1E1E2E",
-                width: i === currentIndex ? 48 : 32,
-              }]}
-            />
-          ))}
+    <LinearGradient colors={["#0A0A0F", "#0D0B1A", "#130A28"]} style={styles.container}>
+      <View style={styles.content}>
+        <Text style={styles.title}>Enable required permissions</Text>
+        <Text style={styles.subtitle}>
+          RAI needs all permissions below to personalize your score, danger zones, and app blocking.
+        </Text>
+
+        <View style={styles.card}>
+          <PermissionRow
+            label="Notifications"
+            granted={state.notificationsGranted}
+            actionLabel="Grant"
+            onPress={async () => {
+              await Notifications.requestPermissionsAsync();
+              await refresh();
+            }}
+          />
+          <PermissionRow
+            label="Screen time (Usage Access)"
+            granted={state.usageAccessGranted}
+            actionLabel="Open"
+            onPress={async () => {
+              await UsageStatsBridge.requestUsageAccess();
+            }}
+          />
+          <PermissionRow
+            label="Battery optimization"
+            granted={state.batteryExempt}
+            actionLabel="Open"
+            onPress={async () => {
+              await UsageStatsBridge.requestIgnoreBatteryOptimizations();
+            }}
+          />
+          <PermissionRow
+            label="Accessibility service"
+            granted={state.accessibilityGranted}
+            actionLabel="Open"
+            onPress={async () => {
+              await AppBlocker.requestAccessibilityPermission();
+            }}
+          />
         </View>
 
-        <View style={styles.container}>
-          {/* Icon */}
-          <View style={[styles.iconRing, { backgroundColor: current.iconColor + "1A", borderColor: current.iconColor + "33" }]}>
-            <Ionicons name={current.icon} size={60} color={current.iconColor} />
-          </View>
+        <TouchableOpacity style={styles.recheckBtn} onPress={() => void refresh()}>
+          <Text style={styles.recheckText}>I granted permissions — Recheck</Text>
+        </TouchableOpacity>
 
-          {/* Text */}
-          <View style={styles.textBlock}>
-            <Text style={styles.title}>{current.title}</Text>
-            <Text style={styles.why}>{current.why}</Text>
-            {current.hint && (
-              <View style={[styles.hintBox, { borderColor: current.iconColor + "44", backgroundColor: current.iconColor + "11" }]}>
-                <Ionicons name="information-circle-outline" size={14} color={current.iconColor} />
-                <Text style={[styles.hintText, { color: current.iconColor }]}>{current.hint}</Text>
-              </View>
-            )}
-          </View>
+        <TouchableOpacity
+          style={[styles.continueBtn, { opacity: isComplete ? 1 : 0.45 }]}
+          onPress={() => void continueToApp()}
+          disabled={!isComplete}
+        >
+          <Ionicons name="checkmark-circle" size={18} color="#fff" />
+          <Text style={styles.continueText}>Continue</Text>
+        </TouchableOpacity>
 
-          {/* Buttons */}
-          <View style={styles.btns}>
-            <TouchableOpacity
-              onPress={() => void handleGrant()}
-              disabled={isLoading}
-              style={[styles.ctaBtn, { backgroundColor: current.iconColor, opacity: isLoading ? 0.7 : 1 }]}
-            >
-              <Ionicons name={isLoading ? "hourglass-outline" : "arrow-forward-circle-outline"} size={20} color="#FFF" />
-              <Text style={styles.ctaBtnText}>{isLoading ? "Opening…" : current.cta}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={handleSkip} style={styles.skipBtn}>
-              <Text style={styles.skipText}>{current.skip}</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        <Text style={styles.stepText}>{currentIndex + 1} of {PERMISSIONS.length}</Text>
+        {!isComplete && (
+          <Text style={styles.blockedText}>You cannot continue until all required permissions are granted.</Text>
+        )}
       </View>
     </LinearGradient>
   );
 }
 
+function PermissionRow({
+  label,
+  granted,
+  actionLabel,
+  onPress,
+}: {
+  label: string;
+  granted: boolean;
+  actionLabel: string;
+  onPress: () => void | Promise<void>;
+}) {
+  return (
+    <View style={styles.row}>
+      <View style={styles.rowLeft}>
+        <Text style={styles.rowLabel}>{label}</Text>
+        <Text style={[styles.rowStatus, granted ? styles.granted : styles.missing]}>
+          {granted ? "Granted" : "Missing"}
+        </Text>
+      </View>
+      {!granted && (
+        <TouchableOpacity style={styles.actionBtn} onPress={() => void onPress()}>
+          <Text style={styles.actionBtnText}>{actionLabel}</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  progressRow: { flexDirection: "row", gap: 8, justifyContent: "center", paddingTop: 16 },
-  dot: { height: 4, borderRadius: 2 },
-  container: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 32, gap: 36 },
-  iconRing: { width: 128, height: 128, borderRadius: 64, alignItems: "center", justifyContent: "center", borderWidth: 1 },
-  textBlock: { alignItems: "center", gap: 12 },
-  title: { fontSize: 26, fontFamily: "Inter_700Bold", color: "#FFF", textAlign: "center" },
-  why: { fontSize: 15, fontFamily: "Inter_400Regular", color: "#9CA3AF", textAlign: "center", lineHeight: 24 },
-  hintBox: { flexDirection: "row", alignItems: "flex-start", gap: 6, borderWidth: 1, borderRadius: 10, padding: 10, marginTop: 4 },
-  hintText: { fontSize: 13, fontFamily: "Inter_500Medium", lineHeight: 18, flex: 1 },
-  btns: { width: "100%", gap: 12 },
-  ctaBtn: { borderRadius: 14, paddingVertical: 16, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: 10 },
-  ctaBtnText: { fontSize: 16, fontFamily: "Inter_700Bold", color: "#FFF" },
-  skipBtn: { borderRadius: 14, paddingVertical: 14, alignItems: "center" },
-  skipText: { fontSize: 14, fontFamily: "Inter_500Medium", color: "#6B7280" },
-  stepText: { fontSize: 12, fontFamily: "Inter_400Regular", color: "#374151", textAlign: "center", paddingBottom: 32 },
+  container: { flex: 1 },
+  content: { flex: 1, justifyContent: "center", padding: 24, gap: 14 },
+  title: { color: "#fff", fontSize: 28, fontFamily: "Inter_700Bold" },
+  subtitle: { color: "#9CA3AF", fontSize: 14, lineHeight: 20, fontFamily: "Inter_400Regular" },
+  card: { borderRadius: 14, borderWidth: 1, borderColor: "#27272A", backgroundColor: "#11111B", overflow: "hidden" },
+  row: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#2B2B3C",
+  },
+  rowLeft: { flex: 1 },
+  rowLabel: { color: "#E5E7EB", fontFamily: "Inter_600SemiBold", fontSize: 13 },
+  rowStatus: { marginTop: 2, fontFamily: "Inter_500Medium", fontSize: 12 },
+  granted: { color: "#10B981" },
+  missing: { color: "#EF4444" },
+  actionBtn: { backgroundColor: "#4F46E5", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
+  actionBtnText: { color: "#fff", fontFamily: "Inter_600SemiBold", fontSize: 12 },
+  recheckBtn: { borderRadius: 12, borderWidth: 1, borderColor: "#3B3B57", alignItems: "center", padding: 12 },
+  recheckText: { color: "#D1D5DB", fontFamily: "Inter_600SemiBold", fontSize: 14 },
+  continueBtn: {
+    borderRadius: 12,
+    backgroundColor: "#6366F1",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    padding: 14,
+  },
+  continueText: { color: "#fff", fontFamily: "Inter_700Bold", fontSize: 15 },
+  blockedText: { color: "#EF4444", textAlign: "center", fontFamily: "Inter_500Medium", fontSize: 12 },
 });

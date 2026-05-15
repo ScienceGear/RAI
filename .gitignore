@@ -47,3 +47,25 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+.replit
+.replitignore
+.replit-artifact/
+
+# Android
+android/.gradle/
+android/app/.cxx/
+android/app/debug.keystore
+
+# Expo
+.expo/
+.expo-shared/
+expo-env.d.ts
+
+# Environment files (never commit these!)
+.env
+.env*.local
+.env.example
+
+# OS files
+.DS_Store
+Thumbs.db

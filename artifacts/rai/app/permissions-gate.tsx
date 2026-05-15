@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { AppState, Linking, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import * as Notifications from "expo-notifications";
 import { router } from "expo-router";
 
 import { useApp } from "@/contexts/AppContext";
 import { UsageStatsBridge } from "@/src/native/UsageStatsBridge";
+import { AppBlocker } from "@/modules/app-blocker";
 import {
   getPermissionGateStatus,
   persistPermissionStatus,
@@ -15,14 +16,17 @@ type GateState = {
   notificationsGranted: boolean;
   usageAccessGranted: boolean;
   batteryExempt: boolean;
+  accessibilityGranted: boolean;
 };
 
 export default function PermissionsGateScreen() {
   const { authUserId, updateProfile } = useApp();
+  const hasRequestedNotifications = useRef(false);
   const [state, setState] = useState<GateState>({
     notificationsGranted: false,
     usageAccessGranted: false,
     batteryExempt: false,
+    accessibilityGranted: false,
   });
 
   const refresh = async () => {
@@ -31,9 +35,14 @@ export default function PermissionsGateScreen() {
       notificationsGranted: status.notificationsGranted,
       usageAccessGranted: status.usageAccessGranted,
       batteryExempt: status.batteryExempt,
+      accessibilityGranted: status.accessibilityGranted,
     });
 
-    const complete = status.notificationsGranted && status.usageAccessGranted && status.batteryExempt;
+    const complete =
+      status.notificationsGranted &&
+      status.usageAccessGranted &&
+      status.batteryExempt &&
+      status.accessibilityGranted;
     await persistPermissionStatus({ ...status, done: complete });
 
     if (complete) {
@@ -44,6 +53,7 @@ export default function PermissionsGateScreen() {
         permissionsComplete: true,
         usageAccessGranted: true,
         batteryExempt: true,
+        accessibilityGranted: true,
       });
       if (authUserId) {
         await syncPermissionsToSupabase(authUserId);
@@ -54,6 +64,10 @@ export default function PermissionsGateScreen() {
 
   useEffect(() => {
     void refresh();
+    if (!hasRequestedNotifications.current) {
+      hasRequestedNotifications.current = true;
+      void Notifications.requestPermissionsAsync().then(() => refresh());
+    }
     const sub = AppState.addEventListener("change", (next) => {
       if (next === "active") void refresh();
     });
@@ -89,6 +103,14 @@ export default function PermissionsGateScreen() {
           actionLabel="Disable battery optimization"
           onPress={async () => {
             await UsageStatsBridge.requestIgnoreBatteryOptimizations();
+          }}
+        />
+        <PermissionRow
+          label="ACCESSIBILITY_SERVICE"
+          granted={state.accessibilityGranted}
+          actionLabel="Open accessibility settings"
+          onPress={async () => {
+            await AppBlocker.requestAccessibilityPermission();
           }}
         />
       </View>
@@ -156,4 +178,3 @@ const styles = StyleSheet.create({
   settingsBtn: { borderWidth: 1, borderColor: "#374151", borderRadius: 12, alignItems: "center", padding: 13 },
   settingsText: { color: "#9CA3AF", fontFamily: "Inter_600SemiBold", fontSize: 14 },
 });
-

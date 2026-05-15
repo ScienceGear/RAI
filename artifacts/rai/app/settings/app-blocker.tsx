@@ -67,7 +67,7 @@ export default function AppBlockerSettings() {
           <View style={[styles.infoCard, { backgroundColor: "#6366F111", borderColor: "#6366F133" }]}>
             <Ionicons name="information-circle" size={18} color="#6366F1" />
             <Text style={styles.infoText}>
-              RAI uses an in-app lockscreen only. No accessibility service or notification listener is required.
+              RAI uses Android Accessibility Service to detect blocked app launches and redirect you back to the blocker screen.
             </Text>
           </View>
 
@@ -79,11 +79,25 @@ export default function AppBlockerSettings() {
                 <Ionicons name="shield-checkmark" size={22} color={serviceEnabled ? "#10B981" : "#EF4444"} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.serviceLabel, { color: colors.foreground }]}>Active & ready</Text>
+                <Text style={[styles.serviceLabel, { color: colors.foreground }]}>
+                  {serviceEnabled ? "Accessibility enabled" : "Accessibility not enabled"}
+                </Text>
                 <Text style={[styles.serviceSubtitle, { color: colors.mutedForeground }]}>
-                  RAI only blocks navigation inside the app when risk is critical.
+                  {serviceEnabled
+                    ? "Blocked apps will be intercepted system-wide."
+                    : "Enable accessibility to block selected apps on Android."}
                 </Text>
               </View>
+              {!serviceEnabled && (
+                <TouchableOpacity
+                  onPress={async () => {
+                    await AppBlocker.requestAccessibilityPermission();
+                  }}
+                  style={styles.enableBtn}
+                >
+                  <Text style={styles.enableBtnText}>Enable</Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
 

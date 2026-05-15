@@ -18,6 +18,12 @@ import { UsageStats, AppUsage, HourlyScreenTime } from "@/modules/usage-stats";
 import { scheduleSmartAlerts } from "@/lib/notifications";
 
 type Tab = "score" | "screentime" | "productivity";
+type ScreenTimeDetection = {
+  distractionMinutes: number;
+  projectedRaiScore: number;
+  riskScore: number;
+  riskLevel: "low" | "watch" | "danger" | "critical";
+};
 
 const CATEGORY_COLORS: Record<string, string> = {
   social: "#EF4444",
@@ -88,7 +94,7 @@ function MiniBar({ value, max, color }: { value: number; max: number; color: str
 export default function AnalyticsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { profile, tasks, focusSessions, dangerZone, brainState, todayFocusScore, updateProfile } = useApp();
+  const { profile, tasks, moodLogs, focusSessions, dangerZone, brainState, todayFocusScore, updateProfile } = useApp();
   const [activeTab, setActiveTab] = useState<Tab>("score");
 
   // ── Usage permission state ────────────────────────────────────────────────
@@ -122,6 +128,7 @@ export default function AnalyticsScreen() {
   const [loadingUsage, setLoadingUsage] = useState(false);
   const [selectedApp, setSelectedApp] = useState<AppUsage | null>(null);
   const [showAppDetail, setShowAppDetail] = useState(false);
+  const [screenTimeDetection, setScreenTimeDetection] = useState<ScreenTimeDetection | null>(null);
   const alertsSentRef = useRef(false);
 
   // Load usage data for selected day
@@ -196,6 +203,39 @@ export default function AnalyticsScreen() {
       .map((h) => h.hour)
       .sort((a, b) => a - b);
   }, [hourlyData, dangerZone]);
+
+  useEffect(() => {
+    if (usagePermission !== "granted" || selectedDayOffset !== 0 || dayUsage.length === 0) {
+      setScreenTimeDetection(null);
+      return;
+    }
+
+    const distractionMinutes = dayUsage
+      .filter((a) => a.category === "social" || a.category === "entertainment" || a.category === "games")
+      .reduce((sum, a) => sum + a.totalMinutes, 0);
+    const pendingTasks = tasks.filter((t) => t.scheduledDate === todayStr && !t.completed).length;
+    const lowMood = moodLogs[0]?.mood !== undefined && moodLogs[0].mood <= 2;
+    const inDangerHour = computedDangerHours.includes(new Date().getHours());
+
+    let riskScore = 0;
+    riskScore += Math.min(20, pendingTasks * 3);
+    riskScore += lowMood ? 15 : 0;
+    riskScore += inDangerHour && distractionMinutes >= 20 ? 25 : 0;
+    riskScore += distractionMinutes >= 60 ? 20 : distractionMinutes >= 30 ? 10 : 0;
+    riskScore = Math.min(100, Math.max(0, riskScore));
+
+    const riskLevel: ScreenTimeDetection["riskLevel"] =
+      riskScore >= 75 ? "critical" : riskScore >= 55 ? "danger" : riskScore >= 35 ? "watch" : "low";
+    const distractionPenalty = Math.min(140, Math.round(distractionMinutes * 1.8));
+    const projectedRaiScore = Math.max(0, Math.min(1000, profile.raiScore - distractionPenalty));
+
+    setScreenTimeDetection({
+      distractionMinutes,
+      projectedRaiScore,
+      riskScore,
+      riskLevel,
+    });
+  }, [usagePermission, selectedDayOffset, dayUsage, computedDangerHours, tasks, moodLogs, profile.raiScore]);
 
   const scoreBreakdown = useMemo(() => {
     const completedTasks = tasks.filter((t) => t.completed).length;
@@ -405,6 +445,37 @@ export default function AnalyticsScreen() {
                   <Text style={[styles.miniStatLabel, { color: "#6B7280" }]}>App Opens</Text>
                 </View>
               </View>
+
+              {screenTimeDetection && (
+                <View style={[styles.card, { backgroundColor: "#0F0F1A", borderColor: "#1E1E2E" }]}>
+                  <View style={styles.cardTitleRow}>
+                    <Ionicons name="analytics" size={14} color="#6366F1" />
+                    <Text style={[styles.cardTitle, { color: "#FFF" }]}>Detected from Screen Time</Text>
+                  </View>
+                  <View style={styles.statCards}>
+                    <View style={[styles.miniStatCard, { backgroundColor: "#12121C", borderColor: "#1E1E2E" }]}>
+                      <Ionicons name="speedometer" size={18} color="#8B5CF6" />
+                      <Text style={[styles.miniStatValue, { color: "#FFF", fontSize: 18 }]}>
+                        {screenTimeDetection.projectedRaiScore}
+                      </Text>
+                      <Text style={[styles.miniStatLabel, { color: "#6B7280" }]}>RAI (screen-time adjusted)</Text>
+                    </View>
+                    <View style={[styles.miniStatCard, { backgroundColor: "#12121C", borderColor: "#1E1E2E" }]}>
+                      <Ionicons name="warning" size={18} color="#EF4444" />
+                      <Text style={[styles.miniStatValue, { color: "#FFF", fontSize: 18 }]}>
+                        {screenTimeDetection.riskScore}
+                      </Text>
+                      <Text style={[styles.miniStatLabel, { color: "#6B7280" }]}>
+                        Risk ({screenTimeDetection.riskLevel})
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={[styles.helperText, { color: "#6B7280" }]}>
+                    Danger zone detected: {computedDangerHours.length > 0 ? fmtDangerRanges(computedDangerHours) : "No clear danger hours yet"}.
+                    {" "}Distraction usage today: {fmtTime(screenTimeDetection.distractionMinutes)}.
+                  </Text>
+                </View>
+              )}
 
               {/* 24hr hourly timeline */}
               {hourlyData.length > 0 && (

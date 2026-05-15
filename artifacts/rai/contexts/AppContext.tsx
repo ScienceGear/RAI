@@ -6,7 +6,7 @@ import { getItem, setItem, KEYS } from "@/lib/storage";
 import { getDefaultEnergyProfile, autoScheduleTask } from "@/lib/scheduler";
 import { categorizeTaskLocal } from "@/lib/categorizer";
 import { calculateTaskXP, levelFromXP, calculateRaiScore, DEFAULT_ACHIEVEMENTS } from "@/lib/xp";
-import { computeBrainState, BrainState } from "@/lib/brainstate";
+import { computeBrainState, computeDangerZoneHours, BrainState } from "@/lib/brainstate";
 import {
   firestoreSet, firestoreGet, firestoreGetAll, firestoreSetAll, firestoreSubscribe,
   createSquad as fsCreateSquad, joinSquad as fsJoinSquad,
@@ -200,7 +200,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // 2. One-time fetch for non-task data (profile, diary, etc.)
     const cloud = await firestoreGetAll(uid, FIRESTORE_KEYS);
 
-    const p = (cloud["profile"] as UserProfile | null) ?? localP;
+    const p =
+      (cloud["profile"] as UserProfile | null) ??
+      (localP && localP.id === uid ? localP : null);
     const d = (cloud["diary"] as DiaryEntry[] | null) ?? (await getItem<DiaryEntry[]>(KEYS.DIARY)) ?? [];
     const m = (cloud["moodLogs"] as MoodLog[] | null) ?? (await getItem<MoodLog[]>(KEYS.MOOD_LOGS)) ?? [];
     const fs = (cloud["focusSessions"] as FocusSession[] | null) ?? (await getItem<FocusSession[]>(KEYS.FOCUS_SESSIONS)) ?? [];
@@ -284,6 +286,46 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const uid = authUser?.uid ?? null;
 
+  const computeBehaviorRaiScore = useCallback(
+    (params?: {
+      tasksData?: Task[];
+      focusData?: FocusSession[];
+      moodData?: MoodLog[];
+      streak?: number;
+      distractionMinutes?: number;
+    }): number => {
+      const tasksData = params?.tasksData ?? tasks;
+      const focusData = params?.focusData ?? focusSessions;
+      const moodData = params?.moodData ?? moodLogs;
+      const streak = params?.streak ?? profile.streak;
+      const distractionMinutes = params?.distractionMinutes ?? 0;
+
+      const tasksCompleted = tasksData.filter((task) => task.completed).length;
+      const planningRate =
+        tasksData.length > 0
+          ? tasksData.filter((task) => Boolean(task.scheduledDate && task.scheduledTime)).length / tasksData.length
+          : 0;
+      const focusMinutes = focusData.reduce((sum, session) => sum + session.completedMinutes, 0);
+      const squadMembers = squad?.members.length ?? 0;
+
+      const baseScore = calculateRaiScore({
+        streak,
+        tasksCompleted,
+        focusMinutes,
+        planningRate,
+        squadMembers,
+      });
+
+      const latestMood = moodData[0]?.mood ?? null;
+      const moodPenalty = latestMood !== null && latestMood <= 2 ? 40 : latestMood === 3 ? 10 : 0;
+      const distractionPenalty = Math.min(140, Math.round(distractionMinutes * 1.8));
+      const focusBonus = Math.min(60, Math.round(focusMinutes / 25));
+
+      return Math.max(0, Math.min(1000, baseScore + focusBonus - moodPenalty - distractionPenalty));
+    },
+    [tasks, focusSessions, moodLogs, profile.streak, squad?.members.length]
+  );
+
   const syncProfile = useCallback((p: UserProfile) => {
     setItem(KEYS.USER_PROFILE, p);
     if (uid) firestoreSet(uid, "profile", p);
@@ -348,10 +390,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const newXP = prev.xp + xpEarned;
         const newLevel = levelFromXP(newXP);
         const didLevelUp = newLevel > prev.level;
-        const newScore = Math.min(1000, calculateRaiScore({
-          streak: prev.streak, tasksCompleted: next.filter((t) => t.completed).length,
-          focusMinutes: 0, planningRate: 0.8, squadMembers: 0,
-        }));
+        const newScore = computeBehaviorRaiScore({
+          tasksData: next,
+          focusData: focusSessions,
+          moodData: moodLogs,
+          streak: prev.streak,
+        });
         const updated = { ...prev, xp: newXP, level: newLevel, raiScore: newScore, lastActiveDate: todayStr() };
         syncProfile(updated);
         if (didLevelUp) sendInstantNotification("🎉 Level Up!", `You reached Level ${newLevel}!`);
@@ -373,7 +417,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       return next;
     });
-  }, [uid, profile.firstName, syncTasks, syncProfile]);
+  }, [uid, profile.firstName, syncTasks, syncProfile, focusSessions, moodLogs, computeBehaviorRaiScore]);
 
   const scheduleTask = useCallback(async (taskId: string) => {
     setTasks((prev) => {
@@ -569,6 +613,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
     Math.min(40, todayFocusMinutes / 2)
   ));
 
+  useEffect(() => {
+    const computed = computeBehaviorRaiScore();
+    if (profile.raiScore === computed) return;
+    setProfile((prev) => {
+      if (prev.raiScore === computed) return prev;
+      const next = { ...prev, raiScore: computed };
+      syncProfile(next);
+      return next;
+    });
+  }, [computeBehaviorRaiScore, profile.raiScore, syncProfile]);
+
+  useEffect(() => {
+    if (profile.permissionsComplete && profile.usageAccessGranted) return;
+    const fallbackDangerHours = computeDangerZoneHours(focusSessions, moodLogs);
+    setDangerZone((prev) => ({
+      ...prev,
+      dangerHours: fallbackDangerHours,
+      topDistractionApps: prev.topDistractionApps,
+      dataPointsCount: fallbackDangerHours.length,
+      isBootstrapEstimate: false,
+      lastComputedAt: new Date().toISOString(),
+    }));
+  }, [focusSessions, moodLogs, profile.permissionsComplete, profile.usageAccessGranted]);
+
   // Recompute danger zones from real screen-time logs and register background sync
   useEffect(() => {
     let cancelled = false;
@@ -580,10 +648,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const dangerHours = await calculateDangerZonesFromScreenTime(uid);
         if (cancelled) return;
 
+        const raiScoreFromBehavior = computeBehaviorRaiScore({ distractionMinutes: totals.distractionMinutes });
+        setProfile((prev) => {
+          if (prev.raiScore === raiScoreFromBehavior) return prev;
+          const next = { ...prev, raiScore: raiScoreFromBehavior };
+          syncProfile(next);
+          return next;
+        });
+
         setDangerZone({
           dangerHours,
           topDistractionApps: totals.topDistractionApps,
-          weakestDayOfWeek: 6,
+          weakestDayOfWeek: new Date().getDay(),
           doomLoopSequences: [],
           dataPointsCount: dangerHours.length,
           isBootstrapEstimate: false,
@@ -610,7 +686,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [uid, focusSessions.length, moodLogs.length, tasks.length, profile.notificationsGranted, profile.permissionsComplete, profile.usageAccessGranted, profile.batteryExempt]);
+  }, [uid, focusSessions.length, moodLogs.length, tasks.length, profile.notificationsGranted, profile.permissionsComplete, profile.usageAccessGranted, profile.batteryExempt, computeBehaviorRaiScore, syncProfile]);
 
   // Risk scoring with high-distraction signal
   useEffect(() => {

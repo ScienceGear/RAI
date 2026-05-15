@@ -1,10 +1,11 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+# See https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files for more about ignoring files.
 
 # dependencies
 node_modules/
 
 # Expo
 .expo/
+.expo-shared/
 dist/
 web-build/
 expo-env.d.ts
@@ -32,10 +33,44 @@ yarn-error.*
 *.pem
 
 # local env files
+.env
 .env*.local
+.env.example
 
 # typescript
 *.tsbuildinfo
-.vercel
 
-.env
+# Replit
+.cache/
+.local/
+.replit
+.replitignore
+.replit-artifact/
+
+# IDEs and editors
+/.idea
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+
+# misc
+/.sass-cache
+/connect.lock
+/coverage
+/libpeerconnection.log
+
+# Build artifacts
+android/.gradle/
+android/app/.cxx/
+android/app/debug.keystore
+.android-sdk/
+
+# VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json

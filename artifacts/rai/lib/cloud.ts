@@ -50,7 +50,7 @@ function formatSquadBackendError(error: SupabaseLikeError): Error {
 
   if (code === "PGRST205" || normalized.includes("schema cache")) {
     return new Error(
-      "Squad backend is not initialized in Supabase. Run artifacts/rai/supabase/compat-schema.sql in SQL Editor, then expose public.squads in Data API settings.",
+      "Squad backend is not initialized in Supabase. Run artifacts/rai/supabase/compat-schema.sql in SQL Editor, then expose public.user_data, public.squads, and public.invite_codes in Data API settings.",
     );
   }
 

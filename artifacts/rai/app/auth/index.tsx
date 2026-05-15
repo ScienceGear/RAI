@@ -13,9 +13,6 @@ import { signIn, signUp, listenToAuthState } from "@/lib/auth";
 
 type Mode = "login" | "register";
 
-const DEMO_EMAIL = "demo2@rai.app";
-const DEMO_PASSWORD = "demo123456";
-
 export default function AuthScreen() {
   const insets = useSafeAreaInsets();
   const [mode, setMode] = useState<Mode>("login");
@@ -110,13 +107,6 @@ export default function AuthScreen() {
     setMode((m) => (m === "login" ? "register" : "login"));
     setError("");
     setPassword("");
-  };
-
-  const useDemoAccount = () => {
-    setMode("login");
-    setEmail(DEMO_EMAIL);
-    setPassword(DEMO_PASSWORD);
-    setError("");
   };
 
   return (
@@ -233,11 +223,6 @@ export default function AuthScreen() {
               </LinearGradient>
             </TouchableOpacity>
 
-            <TouchableOpacity onPress={useDemoAccount} disabled={loading} style={styles.demoBtn}>
-              <Text style={styles.demoBtnText}>Use Demo Account</Text>
-            </TouchableOpacity>
-            <Text style={styles.demoHint}>Email: {DEMO_EMAIL}   Password: {DEMO_PASSWORD}</Text>
-
             {/* Toggle mode */}
             <View style={styles.toggleRow}>
               <Text style={styles.toggleLabel}>
@@ -350,27 +335,6 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     overflow: "hidden",
     marginTop: 4,
-  },
-  demoBtn: {
-    borderWidth: 1,
-    borderColor: "#2D2D3F",
-    borderRadius: 12,
-    paddingVertical: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#0A0A0F",
-  },
-  demoBtnText: {
-    fontSize: 14,
-    fontFamily: "Inter_600SemiBold",
-    color: "#A5B4FC",
-  },
-  demoHint: {
-    fontSize: 12,
-    fontFamily: "Inter_400Regular",
-    color: "#6B7280",
-    textAlign: "center",
-    marginTop: -4,
   },
   submitGradient: {
     flexDirection: "row",

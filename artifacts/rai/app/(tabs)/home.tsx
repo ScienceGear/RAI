@@ -185,7 +185,7 @@ export default function HomeScreen() {
           >
             <View style={styles.scoreLeft}>
               <Text style={styles.scoreLabelText}>RAI SCORE</Text>
-              <Text style={styles.scoreBigNumber}>{todayFocusScore}</Text>
+              <Text style={styles.scoreBigNumber}>{profile.raiScore}</Text>
               <View style={[styles.tierBadge, { backgroundColor: "rgba(255,255,255,0.15)" }]}>
                 <Text style={styles.tierText}>{scoreTier.title}</Text>
               </View>
@@ -197,11 +197,11 @@ export default function HomeScreen() {
             <ProgressRing
               size={96}
               strokeWidth={9}
-              progress={todayFocusScore / 100}
+              progress={profile.raiScore / 1000}
               gradient
               trackColor="rgba(255,255,255,0.15)"
             >
-              <Text style={styles.ringPercent}>{todayFocusScore}%</Text>
+              <Text style={styles.ringPercent}>{Math.round((profile.raiScore / 1000) * 100)}%</Text>
             </ProgressRing>
           </LinearGradient>
 
