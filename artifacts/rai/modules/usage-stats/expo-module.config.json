@@ -1,0 +1,13 @@
+{
+  "source": "expo-module",
+  "ios": {
+    "cocoapods": {
+      "specfile": "expo-module.podspec"
+    }
+  },
+  "android": {
+    "package": "expo.modules.usagestats",
+    "srcMain": "src/main/java/expo/modules/usagestats",
+    "buildGradle": true
+  }
+}

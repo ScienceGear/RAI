@@ -1,20 +1,21 @@
 {
-  "cli": { "version": ">= 7.0.0" },
+  "cli": {
+    "version": ">= 18.12.1",
+    "appVersionSource": "remote"
+  },
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal",
-      "android": { "buildType": "apk" }
+      "distribution": "internal"
     },
     "preview": {
-      "distribution": "internal",
-      "android": { "buildType": "apk" }
+      "distribution": "internal"
     },
     "production": {
-      "android": {
-        "buildType": "apk",
-        "gradleCommand": ":app:assembleRelease"
-      }
+      "autoIncrement": true
     }
+  },
+  "submit": {
+    "production": {}
   }
 }

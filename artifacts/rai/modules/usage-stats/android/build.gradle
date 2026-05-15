@@ -1,0 +1,29 @@
+apply plugin: 'com.android.library'
+apply plugin: 'org.jetbrains.kotlin.android'
+
+def resolveExtOrDefault(name, fallback) {
+  return rootProject.ext.has(name) ? rootProject.ext.get(name) : fallback
+}
+
+android {
+  namespace "expo.modules.usagestats"
+  compileSdk resolveExtOrDefault("compileSdkVersion", 35)
+
+  defaultConfig {
+    minSdkVersion resolveExtOrDefault("minSdkVersion", 24)
+    targetSdkVersion resolveExtOrDefault("targetSdkVersion", 35)
+  }
+
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_17
+    targetCompatibility JavaVersion.VERSION_17
+  }
+
+  kotlinOptions {
+    jvmTarget = "17"
+  }
+}
+
+dependencies {
+  implementation project(':expo-modules-core')
+}

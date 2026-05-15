@@ -1,0 +1,5 @@
+{
+  "root": true,
+  "ignore": ["**/node_modules/**", "**/bower_components/**", "**/test/**", "**/tmp/**"],
+  "plugins": ["prettier-plugin-organize-imports", "prettier-plugin-tailwindcss"]
+}
