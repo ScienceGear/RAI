@@ -6,6 +6,8 @@
 
 RAI is an AI-driven mobile productivity app that helps you stay focused, manage tasks, track screen time, and build better habits — proactively, not passively.
 
+🔗 **Live Site:** [https://rai.sciencegear.tech/](https://rai.sciencegear.tech/)
+
 ---
 
 ## ✨ Features
